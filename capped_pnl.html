@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Consolidated PnL Metrics</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f8f8f8;
+    }
+    header nav {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    header nav button {
+      margin-right: 10px;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    /* Cap Input Field */
+    .cap-input {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .cap-input input {
+      padding: 5px;
+      font-size: 16px;
+      width: 100px;
+      margin-left: 10px;
+    }
+    /* Summary Section */
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    .summary-item {
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 15px;
+      border-radius: 5px;
+      width: 220px;
+      text-align: center;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    .summary-item strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 1.1em;
+    }
+    /* Container for the graphs */
+    .charts-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+      margin-bottom: 40px;
+    }
+    /* Chart container (width capped to 600px) */
+    .chart-item {
+      max-width: 600px;
+      flex: 1 1 600px;
+    }
+    .chart-title {
+      text-align: center;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+  </style>
+  <!-- Include PapaParse from a CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <!-- Include Chart.js from a CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <!-- Navigation Header -->
+  <header>
+    <nav>
+      <button onclick="window.location.href='index.html'">Summary</button>
+      <button onclick="window.location.href='capped_pnl.html'">Capped PnL</button>
+      <button onclick="window.location.href='individual.html'">Individual symbol</button>
+
+    </nav>
+  </header>
+
+  <h1>Capped PnL</h1>
+
+  <!-- Cap Input: Allows the user to adjust the cap value for individual trade calculation -->
+  <div class="cap-input">
+    <label for="cap">Cap Value:</label>
+    <input type="number" id="cap" value="5555" />
+  </div>
+
+  <!-- Summary Section -->
+  <div class="summary" id="summary">
+    <!-- Summary metrics will be injected here -->
+  </div>
+
+  <!-- Graphs Section -->
+  <section class="charts-container">
+    <!-- Overall Chart -->
+    <div class="chart-item">
+      <canvas id="pnlChart"></canvas>
+    </div>
+    <!-- Long Trades Chart -->
+    <div class="chart-item">
+      <div class="chart-title">Long Trades</div>
+      <canvas id="pnlChartLong"></canvas>
+    </div>
+    <!-- Short Trades Chart -->
+    <div class="chart-item">
+      <div class="chart-title">Short Trades</div>
+      <canvas id="pnlChartShort"></canvas>
+    </div>
+  </section>
+
+  <script>
+    // Global variables
+    let tradesData = [];
+    let rawTotalGlobal = 0;  // Overall raw total (static)
+    let pnlChart, pnlChartLong, pnlChartShort;
+
+    /**
+     * Calculates overall metrics for a given cap value.
+     *
+     * For each trade:
+     * - "Raw Total" is the sum of trade PnL.
+     * - "Capped Total" is computed as:
+     *    - Parse "Daily unrealized" as an array.
+     *    - If any daily unrealized value exceeds the cap,
+     *      use the cap value for that trade.
+     *    - Otherwise, use the trade's actual PnL.
+     */
+    function calculateMetrics(capValue) {
+      let rawTotal = 0;
+      let cappedTotal = 0;
+      tradesData.forEach(trade => {
+        let pnl = parseFloat(trade['PnL']);
+        if (isNaN(pnl)) return;
+        rawTotal += pnl;
+        let tradeContribution = pnl;
+        if (trade["Daily unrealized"]) {
+          try {
+            let dailyArr = JSON.parse(trade["Daily unrealized"]);
+            if (Array.isArray(dailyArr) && dailyArr.some(val => parseFloat(val) > capValue)) {
+              tradeContribution = capValue;
+            }
+          } catch (e) {
+            console.warn("Could not parse Daily unrealized for trade:", trade, e);
+          }
+        }
+        cappedTotal += tradeContribution;
+      });
+      return { rawTotal, cappedTotal };
+    }
+
+    /**
+     * Calculates metrics for trades filtered by a given trade type.
+     */
+    function calculateMetricsForTradeType(capValue, tradeType) {
+      let rawTotal = 0;
+      let cappedTotal = 0;
+      // Filter trades based on trade type.
+      let filteredTrades = tradesData.filter(trade => parseInt(trade['Trade Type']) === tradeType);
+      filteredTrades.forEach(trade => {
+        let pnl = parseFloat(trade['PnL']);
+        if (isNaN(pnl)) return;
+        rawTotal += pnl;
+        let tradeContribution = pnl;
+        if (trade["Daily unrealized"]) {
+          try {
+            let dailyArr = JSON.parse(trade["Daily unrealized"]);
+            if (Array.isArray(dailyArr) && dailyArr.some(val => parseFloat(val) > capValue)) {
+              tradeContribution = capValue;
+            }
+          } catch (e) {
+            console.warn("Could not parse Daily unrealized for trade:", trade, e);
+          }
+        }
+        cappedTotal += tradeContribution;
+      });
+      return { rawTotal, cappedTotal };
+    }
+
+    // Displays overall metrics in the summary section.
+    function displayMetrics(metrics) {
+      const summaryDiv = document.getElementById('summary');
+      summaryDiv.innerHTML = `
+        <div class="summary-item"><strong>Raw PnL Total:</strong> ${metrics.rawTotal.toFixed(2)}</div>
+        <div class="summary-item"><strong>Capped PnL Total (current cap):</strong> ${metrics.cappedTotal.toFixed(2)}</div>
+      `;
+    }
+
+    // Loads CSV data using PapaParse.
+    function loadCSVData() {
+      Papa.parse('daily_trades.csv', {
+        download: true,
+        header: true,
+        dynamicTyping: true,
+        complete: function(results) {
+          tradesData = results.data;
+          updateMetrics();
+          buildAllCharts();
+        },
+        error: function(error) {
+          console.error('Error loading CSV data:', error);
+          document.getElementById('summary').innerHTML = '<p>Error loading CSV data.</p>';
+        }
+      });
+    }
+
+    // Updates overall metrics based on current cap input.
+    function updateMetrics() {
+      const capValue = parseFloat(document.getElementById('cap').value) || 0;
+      const metrics = calculateMetrics(capValue);
+      rawTotalGlobal = metrics.rawTotal;
+      displayMetrics(metrics);
+    }
+
+    /**
+     * Build overall chart data by calculating capped PnL for cap values
+     * ranging from 500 to 30000 in increments of 500.
+     */
+    function buildChartOverall() {
+      const capValues = [];
+      const cappedTotals = [];
+      for (let cap = 500; cap <= 30000; cap += 500) {
+        capValues.push(cap);
+        const { cappedTotal } = calculateMetrics(cap);
+        cappedTotals.push(cappedTotal);
+      }
+      const rawTotalArray = Array(capValues.length).fill(rawTotalGlobal);
+      if (pnlChart) { pnlChart.destroy(); }
+      const ctx = document.getElementById('pnlChart').getContext('2d');
+      pnlChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: capValues,
+          datasets: [
+            {
+              label: 'Capped PnL Total',
+              data: cappedTotals,
+              borderColor: 'blue',
+              fill: false,
+              tension: 0.1,
+            },
+            {
+              label: 'Raw PnL Total',
+              data: rawTotalArray,
+              borderColor: 'red',
+              borderDash: [5, 5],
+              fill: false,
+              pointRadius: 0,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: 'Overall Capped PnL Total vs. Cap Value' }
+          },
+          scales: {
+            x: { title: { display: true, text: 'Cap Value' } },
+            y: { title: { display: true, text: 'PnL Total' } }
+          }
+        }
+      });
+    }
+
+    /**
+     * Build a chart for a given trade type.
+     * tradeType should be numeric (e.g., 1 for long, 2 for short).
+     */
+    function buildChartForTradeType(tradeType, canvasId, chartTitle) {
+      const capValues = [];
+      const cappedTotals = [];
+      let rawTotal = 0;
+      // Calculate raw total for the filtered trades (static line).
+      let filteredTrades = tradesData.filter(trade => parseInt(trade['Trade Type']) === tradeType);
+      filteredTrades.forEach(trade => {
+        let pnl = parseFloat(trade['PnL']);
+        if (!isNaN(pnl)) rawTotal += pnl;
+      });
+      for (let cap = 500; cap <= 30000; cap += 500) {
+        capValues.push(cap);
+        const { cappedTotal } = calculateMetricsForTradeType(cap, tradeType);
+        cappedTotals.push(cappedTotal);
+      }
+      const rawTotalArray = Array(capValues.length).fill(rawTotal);
+      let chartInstance;
+      if (tradeType === 1 && pnlChartLong) { chartInstance = pnlChartLong; }
+      if (tradeType === 2 && pnlChartShort) { chartInstance = pnlChartShort; }
+      if (chartInstance) { chartInstance.destroy(); }
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      const newChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: capValues,
+          datasets: [
+            {
+              label: 'Capped PnL Total',
+              data: cappedTotals,
+              borderColor: 'green',
+              fill: false,
+              tension: 0.1,
+            },
+            {
+              label: 'Raw PnL Total',
+              data: rawTotalArray,
+              borderColor: 'orange',
+              borderDash: [5, 5],
+              fill: false,
+              pointRadius: 0,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: chartTitle }
+          },
+          scales: {
+            x: { title: { display: true, text: 'Cap Value' } },
+            y: { title: { display: true, text: 'PnL Total' } }
+          }
+        }
+      });
+      if (tradeType === 1) { pnlChartLong = newChart; }
+      if (tradeType === 2) { pnlChartShort = newChart; }
+    }
+
+    // Rebuild all charts.
+    function buildAllCharts() {
+      buildChartOverall();
+      buildChartForTradeType(1, 'pnlChartLong', 'Capped PnL Total vs. Cap Value (Long Trades)');
+      buildChartForTradeType(2, 'pnlChartShort', 'Capped PnL Total vs. Cap Value (Short Trades)');
+    }
+
+    // When the cap input changes, update metrics and rebuild all charts.
+    document.getElementById('cap').addEventListener('input', function() {
+      updateMetrics();
+      buildAllCharts();
+    });
+
+    // Load CSV data and initialize.
+    window.addEventListener('DOMContentLoaded', loadCSVData);
+  </script>
+</body>
+</html>

@@ -1,0 +1,2134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trade Metrics Dashboard</title>
+  <!-- PapaParse for CSV parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <!-- Chart.js for charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f8f8f8;
+    }
+    header nav {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    header nav button {
+      margin-right: 10px;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    h1, h2 {
+      text-align: center;
+    }
+    /* CSV Input Field */
+    #csvInputContainer {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    #csvInputContainer input {
+      padding: 5px;
+      font-size: 16px;
+      width: 250px;
+    }
+    #csvInputContainer button {
+      padding: 5px 10px;
+      font-size: 16px;
+      margin-left: 5px;
+      cursor: pointer;
+    }
+    #errorMessage {
+      text-align: center;
+      color: red;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    /* Settings Bar */
+    #settingsBar {
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      margin: 0 auto 20px auto;
+      max-width: 900px;
+      text-align: center;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    #settingsBar label {
+      margin-right: 15px;
+      font-weight: bold;
+    }
+    /* Summary Section */
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 20px;
+      margin-bottom: 40px;
+    }
+    .summary-item {
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 15px;
+      border-radius: 5px;
+      width: 220px;
+      text-align: center;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    .summary-item strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 1.1em;
+    }
+    /* Distribution Section */
+    .distribution {
+      background: #fff;
+      padding: 15px;
+      margin-bottom: 40px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      max-width: 95%;
+      margin: 0 auto 40px auto;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    .distribution label {
+      font-weight: bold;
+    }
+    /* Container for the charts */
+    #chartsContainer, #chartsContainerLong, #chartsContainerShort {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    #chartsContainer > div, #chartsContainerLong > div, #chartsContainerShort > div {
+      text-align: center;
+    }
+    /* Table styling */
+    table {
+      border-collapse: collapse;
+      width: 80%;
+      background: #fff;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+      margin: 0 auto; /* Centers the table horizontally */
+    }
+
+    p {
+      text-align: center;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    /* Toggled columns get a specific class */
+    th.toggle-col-entry-prices, td.toggle-col-entry-prices,
+    th.toggle-col-trade-type, td.toggle-col-trade-type,
+    th.toggle-col-quantities, td.toggle-col-quantities,
+    th.toggle-col-atr-values, td.toggle-col-atr-values,
+    th.toggle-col-txn-fee, td.toggle-col-txn-fee,
+    th.toggle-col-volume, td.toggle-col-volume {
+      /* Visibility controlled via JS */
+    }
+    /* The mini graph column uses class "mini-graph-col" */
+    /* Responsive table */
+    @media (max-width: 768px) {
+      table, thead, tbody, th, td, tr {
+        display: block;
+      }
+      th {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+      }
+      td {
+        border: none;
+        position: relative;
+        padding-left: 50%;
+      }
+      td:before {
+        position: absolute;
+        top: 8px;
+        left: 6px;
+        width: 45%;
+        white-space: nowrap;
+      }
+      td:nth-of-type(1):before { content: "Entry Dates"; }
+      td:nth-of-type(2):before { content: "Exit Date"; }
+      td:nth-of-type(3):before { content: "Duration"; }
+      td:nth-of-type(4):before { content: "Entry Prices"; }
+      td:nth-of-type(5):before { content: "Average Entry Price"; }
+      td:nth-of-type(6):before { content: "Exit Price"; }
+      td:nth-of-type(7):before { content: "Trade Type"; }
+      td:nth-of-type(8):before { content: "Quantities"; }
+      td:nth-of-type(9):before { content: "Total Quantity"; }
+      td:nth-of-type(10):before { content: "ATR Values"; }
+      td:nth-of-type(11):before { content: "PnL"; }
+      td:nth-of-type(12):before { content: "Txn Fee"; }
+      td:nth-of-type(13):before { content: "Volume"; }
+      td:nth-of-type(14):before { content: "Daily unrealized (Mini Graph)"; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Header -->
+  <header>
+    <nav>
+      <button onclick="window.location.href='index.html'">Summary</button>
+      <button onclick="window.location.href='capped_pnl.html'">Capped PnL</button>
+      <button onclick="window.location.href='individual.html'">Individual symbol</button>
+
+    </nav>
+  </header>
+
+
+  <h1>Summary Dashboard</h1>
+
+  <!-- CSV Input Field -->
+  <div id="csvInputContainer">
+    <label for="csvFilename">CSV Filename:</label>
+    <input type="text" id="csvFilename" placeholder="daily_trades.csv">
+    <button id="loadCSVButton">Load CSV</button>
+    <div id="errorMessage"></div>
+  </div>
+
+
+
+
+  <p>TODO</p>
+  <p>Average duration for trade to reach max uPnl</p>
+  <p>distribution of days for trade to reach max uPnL</p>
+  <p>Metrics by individual symbols page</p>
+  <p></p>
+
+  <!-- Settings Bar -->
+  <div id="settingsBar">
+    <label>
+      <input type="checkbox" id="toggleMiniGraph">
+      Show Daily Unrealized Mini Graph
+    </label>
+    <label>
+      <input type="checkbox" id="toggleEntryPrices">
+      Entry Prices
+    </label>
+    <label>
+      <input type="checkbox" id="toggleTradeType">
+      Trade Type
+    </label>
+    <label>
+      <input type="checkbox" id="toggleQuantities">
+      Quantities
+    </label>
+    <label>
+      <input type="checkbox" id="toggleATRValues">
+      ATR Values
+    </label>
+    <label>
+      <input type="checkbox" id="toggleTxnFee">
+      Txn Fee
+    </label>
+    <label>
+      <input type="checkbox" id="toggleVolume">
+      Volume
+    </label>
+  </div>
+
+  <h1>Summary</h1>
+  <!-- Summary Section -->
+  <div class="summary" id="summary">
+    <!-- Summary metrics will be injected here -->
+  </div>
+
+  <!-- Main Charts Section -->
+  <div class="distribution" id="distributionSection">
+    <h2>Charts (All Trades)</h2>
+
+    <div class="summary" id="all-trades-summary">
+      <!-- Summary metrics will be injected here -->
+    </div>
+
+    <div style="text-align:center; margin-bottom:10px;">
+      <label for="riskSize">Risk Size per Trade:</label>
+      <input type="number" id="riskSize" value="55.55" step="any" style="width:100px; margin-left:5px;">
+    </div>
+    <div id="chartsContainer">
+      <div>
+        <h3>Unrealized Profit Distribution</h3>
+        <canvas id="distributionChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution</h3>
+        <canvas id="pnlDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Portfolio Unrealized PnL Over Time</h3>
+        <canvas id="portfolioUnrealizedChart" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Equity Line (Cumulative PnL)</h3>
+        <canvas id="equityLineChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >2 RR</h3>
+        <canvas id="finalPnlDistributionChart" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >5 RR</h3>
+        <canvas id="finalPnlDistributionChart5" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >10 RR</h3>
+        <canvas id="finalPnlDistributionChart10" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Duration to Max uPnL Distribution</h3>
+        <canvas id="durationToMaxDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <!-- Overall Trades Section -->
+      <div>
+        <h3>Max uPnL Distribution ( > 5 RR)</h3>
+        <canvas id="durationToMaxDistributionChartAbove5" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Max uPnL Distribution ( > 10 RR)</h3>
+        <canvas id="durationToMaxDistributionChartAbove10" width="300" height="400"></canvas>
+      </div>
+
+
+    </div>
+  </div>
+
+  <!-- Long Trades Charts Section -->
+  <div class="distribution" id="longTradesSection">
+    <h2>Long Trades Charts</h2>
+
+    <div class="summary" id="long-trades-summary">
+      <!-- Summary metrics will be injected here -->
+    </div>
+
+    <div id="chartsContainerLong">
+      <div>
+        <h3>Unrealized Profit Distribution (Long)</h3>
+        <canvas id="longDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution (Long)</h3>
+        <canvas id="longPnlDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Portfolio Unrealized PnL Over Time (Long)</h3>
+        <canvas id="longPortfolioUnrealizedChart" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Equity Line (Long Trades)</h3>
+        <canvas id="longEquityLineChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >2 RR (Long)</h3>
+        <canvas id="longFinalPnlDistributionChart" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >5 RR (Long)</h3>
+        <canvas id="longFinalPnlDistributionChart5" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >10 RR (Long)</h3>
+        <canvas id="longFinalPnlDistributionChart10" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Duration to Max uPnL Distribution</h3>
+        <canvas id="longDurationToMaxDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <!-- Overall Trades Section -->
+      <div>
+        <h3>Max uPnL Distribution ( > 5 RR)</h3>
+        <canvas id="longDurationToMaxDistributionChartAbove5" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Max uPnL Distribution ( > 10 RR)</h3>
+        <canvas id="longDurationToMaxDistributionChartAbove10" width="300" height="400"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Short Trades Charts Section -->
+  <div class="distribution" id="shortTradesSection">
+    <h2>Short Trades Charts</h2>
+
+    <div class="summary" id="short-trades-summary">
+      <!-- Summary metrics will be injected here -->
+    </div>
+
+    <div id="chartsContainerShort">
+      <div>
+        <h3>Unrealized Profit Distribution (Short)</h3>
+        <canvas id="shortDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution (Short)</h3>
+        <canvas id="shortPnlDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Portfolio Unrealized PnL Over Time (Short)</h3>
+        <canvas id="shortPortfolioUnrealizedChart" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Equity Line (Short Trades)</h3>
+        <canvas id="shortEquityLineChart" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >2 RR (Short)</h3>
+        <canvas id="shortFinalPnlDistributionChart" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >5 RR (Short)</h3>
+        <canvas id="shortFinalPnlDistributionChart5" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>PnL Distribution Trades >10 RR (Short)</h3>
+        <canvas id="shortFinalPnlDistributionChart10" width="600" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Duration to Max uPnL Distribution</h3>
+        <canvas id="shortDurationToMaxDistributionChart" width="300" height="400"></canvas>
+      </div>
+      <!-- Overall Trades Section -->
+      <div>
+        <h3>Max uPnL Distribution ( > 5 RR)</h3>
+        <canvas id="shortDurationToMaxDistributionChartAbove5" width="300" height="400"></canvas>
+      </div>
+      <div>
+        <h3>Max uPnL Distribution ( > 10 RR)</h3>
+        <canvas id="shortDurationToMaxDistributionChartAbove10" width="300" height="400"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Data Table Section -->
+  <h2>Trade Data</h2>
+  <table id="tradesTable">
+    <thead>
+      <tr>
+        <th>Entry Dates</th>
+        <th>Exit Date</th>
+        <th>Duration</th>
+        <th class="toggle-col-entry-prices">Entry Prices</th>
+        <th>Average Entry Price</th>
+        <th>Exit Price</th>
+        <th class="toggle-col-trade-type">Trade Type</th>
+        <th class="toggle-col-quantities">Quantities</th>
+        <th>Total Quantity</th>
+        <th class="toggle-col-atr-values">ATR Values</th>
+        <th>PnL</th>
+        <th class="toggle-col-txn-fee">Txn Fee</th>
+        <th class="toggle-col-volume">Volume</th>
+        <th class="mini-graph-col">Daily unrealized (Mini Graph)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Table rows will be injected here -->
+    </tbody>
+  </table>
+
+  <script>
+    // Global variables – toggled columns are hidden by default.
+    let csvData = [];              // Holds all CSV data once loaded
+    let showMiniGraph = false;     // Default: mini graphs hidden
+
+    // Chart global variables for overall charts. For filtered charts we will use window properties keyed by canvas ID.
+    let distributionChart, pnlDistributionChart, portfolioUnrealizedChart, equityLineChart;
+    let finalPnlDistributionChart, finalPnlDistributionChart5, finalPnlDistributionChart10;
+
+    /**
+     * Generic function to toggle visibility of all elements with a given class.
+     */
+    function toggleColumn(className, show) {
+      document.querySelectorAll("." + className).forEach(function(el) {
+        el.style.display = show ? "" : "none";
+      });
+    }
+
+    /**
+     * Helper: Parse the Daily unrealized values from a trade.
+     */
+    function getDailyUnrealizedValues(trade) {
+      let values = [];
+      if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+        try {
+          const parsed = JSON.parse(trade['Daily unrealized']);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(val => {
+              let num = parseFloat(val);
+              if (!isNaN(num)) values.push(num);
+            });
+          }
+        } catch (e) {
+          console.error("Error parsing Daily unrealized for trade", trade, e);
+        }
+      }
+      return values;
+    }
+
+    /**
+     * Updates (or creates) the Unrealized Profit Distribution chart.
+     * Now accepts:
+     *   riskSize, data (default csvData), and the canvasId to target.
+     */
+    function updateDistributionChart(riskSize, data = csvData, canvasId = 'distributionChart') {
+      const allValues = [];
+      data.forEach(trade => {
+        const vals = getDailyUnrealizedValues(trade);
+        allValues.push(...vals);
+      });
+      const ratios = allValues.map(val => val / riskSize);
+      const binEdges = [-Infinity, -10, -5, -2, -1, -0.5, 0, 0.5, 1, 2, 5, 10, 100, Infinity];
+      let bins = new Array(binEdges.length - 1).fill(0);
+      const labels = [];
+      for (let i = 0; i < binEdges.length - 1; i++) {
+        if (binEdges[i] === -Infinity) {
+          labels.push("< -10");
+        } else if (binEdges[i+1] === Infinity) {
+          labels.push("> 100");
+        } else {
+          labels.push(`${binEdges[i]} to ${binEdges[i+1]}`);
+        }
+      }
+      ratios.forEach(ratio => {
+        for (let i = 0; i < bins.length; i++) {
+          if (ratio >= binEdges[i] && ratio < binEdges[i+1]) {
+            bins[i]++;
+            break;
+          }
+        }
+      });
+      const totalPoints = ratios.length;
+      const percentages = bins.map(count => totalPoints ? (count / totalPoints) * 100 : 0);
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      // Use a window property keyed by canvasId to hold the chart instance.
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = labels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Percentage of Trades',
+              data: percentages,
+              backgroundColor: 'rgba(54, 162, 235, 0.6)',
+              borderColor: 'rgba(54, 162, 235, 1)',
+              borderWidth: 1
+            }]
+          },
+          options: {
+            scales: {
+              x: { title: { display: true, text: 'Risk Ratio Tranches' } },
+              y: { beginAtZero: true, title: { display: true, text: 'Percentage of Trades (%)' } }
+            }
+          }
+        });
+      }
+    }
+
+    /**
+     * Updates (or creates) the PnL Distribution chart.
+     * Accepts riskSize, data (default csvData), and canvasId.
+     */
+    function updatePnlDistributionChart(riskSize, data = csvData, canvasId = 'pnlDistributionChart') {
+      const binEdges = [-Infinity, -10, -5, -2, -1, -0.5, 0, 0.5, 1, 2, 5, 10, 100, Infinity];
+      let bins = new Array(binEdges.length - 1).fill(0);
+      let durationSums = new Array(binEdges.length - 1).fill(0);
+      let durationCounts = new Array(binEdges.length - 1).fill(0);
+      const labels = [];
+      for (let i = 0; i < binEdges.length - 1; i++) {
+        if (binEdges[i] === -Infinity) {
+          labels.push("< -10");
+        } else if (binEdges[i+1] === Infinity) {
+          labels.push("> 100");
+        } else {
+          labels.push(`${binEdges[i]} to ${binEdges[i+1]}`);
+        }
+      }
+      data.forEach((trade, index) => {
+        let pnl = parseFloat(trade['PnL']) || 0;
+        let normalizedPnl = pnl / riskSize;
+        let duration = NaN;
+        if (trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            let entryDatesStr = trade['Entry Dates'].replace(/'/g, '"');
+            let entryDatesArray = JSON.parse(entryDatesStr);
+            if (Array.isArray(entryDatesArray) && entryDatesArray.length > 0) {
+              let firstEntryDate = entryDatesArray[0].trim();
+              if (!firstEntryDate.includes('T')) {
+                firstEntryDate = firstEntryDate.replace(' ', 'T');
+              }
+              let startDate = new Date(firstEntryDate);
+              let exitDateStr = (trade['Exit Date'] || "").trim();
+              if (exitDateStr && !exitDateStr.includes('T')) {
+                exitDateStr = exitDateStr.replace(' ', 'T');
+              }
+              let exitDate = new Date(exitDateStr);
+              duration = Math.round((exitDate - startDate) / (1000 * 60 * 60 * 24));
+            }
+          } catch (e) {
+            console.error("Error computing duration for trade index", index, e);
+          }
+        }
+        for (let i = 0; i < bins.length; i++) {
+          if (normalizedPnl >= binEdges[i] && normalizedPnl < binEdges[i+1]) {
+            bins[i]++;
+            if (!isNaN(duration)) {
+              durationSums[i] += duration;
+              durationCounts[i]++;
+            }
+            break;
+          }
+        }
+      });
+      const totalTrades = data.length;
+      const percentages = bins.map(count => (totalTrades ? (count / totalTrades) * 100 : 0));
+      const avgDurations = durationSums.map((sum, i) => (durationCounts[i] ? sum / durationCounts[i] : 0));
+      const multilineLabels = labels.map((lab, i) => [lab, bins[i] + " T"]);
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = multilineLabels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].data.datasets[1].data = avgDurations;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          data: {
+            labels: multilineLabels,
+            datasets: [
+              {
+                type: 'bar',
+                label: 'Percentage of Trades',
+                data: percentages,
+                backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                borderColor: 'rgba(255, 99, 132, 1)',
+                borderWidth: 1,
+                yAxisID: 'y'
+              },
+              {
+                type: 'line',
+                label: 'Average Trade Duration (days)',
+                data: avgDurations,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                backgroundColor: 'rgba(0, 0, 0, 1)',
+                borderWidth: 2,
+                fill: false,
+                yAxisID: 'y2',
+                tension: 0,
+                pointStyle: 'circle',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: { title: { display: true, text: 'Risk Ratio Tranches' } },
+              y: { beginAtZero: true, title: { display: true, text: 'Percentage of Trades (%)' } },
+              y2: {
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                beginAtZero: true,
+                title: { display: true, text: 'Average Trade Duration (days)' }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    /**
+     * Updates (or creates) the Portfolio Unrealized PnL Over Time chart.
+     * Accepts data (default csvData) and canvasId.
+     */
+    function updatePortfolioUnrealizedChart(data = csvData, canvasId = 'portfolioUnrealizedChart') {
+      const timeline = {};
+      let minTime = Infinity;
+      let maxTime = -Infinity;
+      data.forEach(trade => {
+        if (trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            let entryDatesStr = trade['Entry Dates'].replace(/'/g, '"');
+            let entryDatesArray = JSON.parse(entryDatesStr);
+            if (!Array.isArray(entryDatesArray) || entryDatesArray.length === 0) return;
+            let tradeStart = new Date(entryDatesArray[0].trim());
+            if (isNaN(tradeStart.getTime())) return;
+            const unrealizedStr = trade['Daily unrealized'];
+            if (!unrealizedStr || unrealizedStr.trim() === "") return;
+            let unrealizedArr = JSON.parse(unrealizedStr);
+            if (!Array.isArray(unrealizedArr)) return;
+            unrealizedArr.forEach((val, i) => {
+              const value = parseFloat(val);
+              if (isNaN(value)) return;
+              const measurementTime = new Date(tradeStart.getTime() + i * 4 * 60 * 60 * 1000);
+              const binTime = new Date(measurementTime);
+              const hours = binTime.getHours();
+              const binHour = Math.floor(hours / 4) * 4;
+              binTime.setHours(binHour, 0, 0, 0);
+              const binKey = binTime.getTime();
+              timeline[binKey] = (timeline[binKey] || 0) + value;
+              if (binKey < minTime) minTime = binKey;
+              if (binKey > maxTime) maxTime = binKey;
+            });
+          } catch (e) {
+            console.error("Error processing trade for portfolio unrealized:", trade, e);
+          }
+        }
+      });
+      const labels = [];
+      const dataPoints = [];
+      if (minTime === Infinity || maxTime === -Infinity) return;
+      for (let t = minTime; t <= maxTime; t += 4 * 60 * 60 * 1000) {
+        labels.push(new Date(t).toLocaleDateString());
+        dataPoints.push(timeline[t] !== undefined ? timeline[t] : 0);
+      }
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = labels;
+        window[canvasId + "Chart"].data.datasets[0].data = dataPoints;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [{
+              label: 'Portfolio Unrealized PnL',
+              data: dataPoints,
+              fill: false,
+              borderColor: 'rgba(153, 102, 255, 1)',
+              backgroundColor: 'rgba(153, 102, 255, 0.5)',
+              borderWidth: 2,
+              pointRadius: 0,
+              tension: 0
+            }]
+          },
+          options: {
+            scales: {
+              x: { title: { display: true, text: 'Time (4h intervals)' } },
+              y: { beginAtZero: true, title: { display: true, text: 'Unrealized PnL' } }
+            }
+          }
+        });
+      }
+    }
+
+    /**
+     * Updates (or creates) the Equity Line chart (cumulative PnL over time).
+     * Accepts data (default csvData) and canvasId.
+     */
+    function updateEquityLineChart(data = csvData, canvasId = 'equityLineChart') {
+      const dailyProfits = {};
+      data.forEach(trade => {
+        let pnl = parseFloat(trade['PnL']) || 0;
+        if (trade['Exit Date'] && trade['Exit Date'].trim() !== "") {
+          let exitDateStr = trade['Exit Date'].trim();
+          if (!exitDateStr.includes('T')) exitDateStr = exitDateStr.replace(' ', 'T');
+          const exitDate = new Date(exitDateStr);
+          const dateKey = exitDate.toISOString().split('T')[0];
+          dailyProfits[dateKey] = (dailyProfits[dateKey] || 0) + pnl;
+        }
+      });
+      const sortedDates = Object.keys(dailyProfits).sort();
+      if (sortedDates.length === 0) return;
+      const startDate = new Date(sortedDates[0]);
+      const endDate = new Date(sortedDates[sortedDates.length - 1]);
+      const dateLabels = [];
+      const equityData = [];
+      let cumulative = 0;
+      let currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const dailyPnl = dailyProfits[dateStr] || 0;
+        cumulative += dailyPnl;
+        dateLabels.push(dateStr);
+        equityData.push(cumulative);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = dateLabels;
+        window[canvasId + "Chart"].data.datasets[0].data = equityData;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: dateLabels,
+            datasets: [{
+              label: 'Equity Line (Cumulative PnL)',
+              data: equityData,
+              fill: false,
+              borderColor: 'rgba(255, 159, 64, 1)',
+              backgroundColor: 'rgba(255, 159, 64, 0.5)',
+              borderWidth: 2,
+              pointRadius: 0,
+              tension: 0
+            }]
+          },
+          options: {
+            scales: {
+              x: { title: { display: true, text: 'Date' } },
+              y: { beginAtZero: false, title: { display: true, text: 'Cumulative PnL' } }
+            }
+          }
+        });
+      }
+    }
+
+    /**
+     * Updates (or creates) the Final PnL Distribution chart.
+     * Accepts riskSize, data (default csvData), and canvasId.
+     */
+    function updateFinalPnlDistributionChart(riskSize, data = csvData, canvasId = 'finalPnlDistributionChart') {
+      const binEdges = [-Infinity, -10, -5, -2, -1, -0.5, 0, 0.5, 1, 2, 5, 10, 100, Infinity];
+      let bins = new Array(binEdges.length - 1).fill(0);
+      const labels = [];
+      let qualifiedTrades = 0;
+      for (let i = 0; i < binEdges.length - 1; i++) {
+        if (binEdges[i] === -Infinity) {
+          labels.push("< -10");
+        } else if (binEdges[i+1] === Infinity) {
+          labels.push("> 100");
+        } else {
+          labels.push(`${binEdges[i]} to ${binEdges[i+1]}`);
+        }
+      }
+      data.forEach((trade, index) => {
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            const has2RR = dailyUnrealized.some(val => parseFloat(val) >= 2 * riskSize);
+            if (has2RR) {
+              qualifiedTrades++;
+              let pnl = parseFloat(trade['PnL']) || 0;
+              let normalizedPnl = pnl / riskSize;
+              for (let i = 0; i < bins.length; i++) {
+                if (normalizedPnl >= binEdges[i] && normalizedPnl < binEdges[i+1]) {
+                  bins[i]++;
+                  break;
+                }
+              }
+            }
+          } catch(e) {
+            console.error("Error parsing Daily unrealized for trade index", index, e);
+          }
+        }
+      });
+      const percentages = bins.map(count => (qualifiedTrades ? (count / qualifiedTrades) * 100 : 0));
+      const cumulative = [];
+      let runningTotal = 0;
+      for (let i = 0; i < percentages.length; i++) {
+        runningTotal += percentages[i];
+        cumulative.push(runningTotal);
+      }
+      const multilineLabels = labels.map((lab, i) => [lab, bins[i] + " T"]);
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = multilineLabels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].data.datasets[1].data = cumulative;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: multilineLabels,
+            datasets: [
+              {
+                label: 'Percentage of Qualified Trades',
+                data: percentages,
+                backgroundColor: 'rgba(0, 200, 83, 0.6)',
+                borderColor: 'rgba(0, 200, 83, 1)',
+                borderWidth: 1,
+                yAxisID: 'yRight'
+              },
+              {
+                label: 'Cumulative Percentage',
+                type: 'line',
+                data: cumulative,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                backgroundColor: 'rgba(0, 0, 0, 1)',
+                borderWidth: 2,
+                fill: false,
+                yAxisID: 'yLeft',
+                tension: 0,
+                pointStyle: 'circle',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: { title: { display: true, text: 'Final PnL in RR Terms' } },
+              yLeft: { position: 'left', beginAtZero: true, title: { display: true, text: 'Cumulative Percentage (%)' } },
+              yRight: { position: 'right', beginAtZero: true, title: { display: true, text: 'Percentage (%)' }, grid: { drawOnChartArea: false } }
+            }
+          }
+        });
+      }
+    }
+
+    // Similar functions for updateFinalPnlDistributionChart5 and updateFinalPnlDistributionChart10:
+    function updateFinalPnlDistributionChart5(riskSize, data = csvData, canvasId = 'finalPnlDistributionChart5') {
+      const binEdges = [-Infinity, -10, -5, -2, -1, -0.5, 0, 0.5, 1, 2, 5, 10, 100, Infinity];
+      let bins = new Array(binEdges.length - 1).fill(0);
+      const labels = [];
+      let qualifiedTrades = 0;
+      for (let i = 0; i < binEdges.length - 1; i++) {
+        if (binEdges[i] === -Infinity) {
+          labels.push("< -10");
+        } else if (binEdges[i+1] === Infinity) {
+          labels.push("> 100");
+        } else {
+          labels.push(`${binEdges[i]} to ${binEdges[i+1]}`);
+        }
+      }
+      data.forEach((trade, index) => {
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            const has5RR = dailyUnrealized.some(val => parseFloat(val) >= 5 * riskSize);
+            if (has5RR) {
+              qualifiedTrades++;
+              let pnl = parseFloat(trade['PnL']) || 0;
+              let normalizedPnl = pnl / riskSize;
+              for (let i = 0; i < bins.length; i++) {
+                if (normalizedPnl >= binEdges[i] && normalizedPnl < binEdges[i+1]) {
+                  bins[i]++;
+                  break;
+                }
+              }
+            }
+          } catch(e) {
+            console.error("Error parsing Daily unrealized for trade index", index, e);
+          }
+        }
+      });
+      const percentages = bins.map(count => (qualifiedTrades ? (count / qualifiedTrades) * 100 : 0));
+      const cumulative = [];
+      let runningTotal = 0;
+      for (let i = 0; i < percentages.length; i++) {
+        runningTotal += percentages[i];
+        cumulative.push(runningTotal);
+      }
+      const multilineLabels = labels.map((lab, i) => [lab, bins[i] + " T"]);
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = multilineLabels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].data.datasets[1].data = cumulative;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: multilineLabels,
+            datasets: [
+              {
+                label: 'Percentage of Qualified Trades',
+                data: percentages,
+                backgroundColor: 'rgba(66, 165, 245, 0.6)',
+                borderColor: 'rgba(66, 165, 245, 1)',
+                borderWidth: 1,
+                yAxisID: 'yRight'
+              },
+              {
+                label: 'Cumulative Percentage',
+                type: 'line',
+                data: cumulative,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                backgroundColor: 'rgba(0, 0, 0, 1)',
+                borderWidth: 2,
+                fill: false,
+                yAxisID: 'yLeft',
+                tension: 0,
+                pointStyle: 'circle',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: { title: { display: true, text: 'Final PnL in RR Terms' } },
+              yLeft: { position: 'left', beginAtZero: true, title: { display: true, text: 'Cumulative Percentage (%)' } },
+              yRight: { position: 'right', beginAtZero: true, title: { display: true, text: 'Percentage (%)' }, grid: { drawOnChartArea: false } }
+            }
+          }
+        });
+      }
+    }
+
+    function updateFinalPnlDistributionChart10(riskSize, data = csvData, canvasId = 'finalPnlDistributionChart10') {
+      const binEdges = [-Infinity, -10, -5, -2, -1, -0.5, 0, 0.5, 1, 2, 5, 10, 100, Infinity];
+      let bins = new Array(binEdges.length - 1).fill(0);
+      const labels = [];
+      let qualifiedTrades = 0;
+      for (let i = 0; i < binEdges.length - 1; i++) {
+        if (binEdges[i] === -Infinity) {
+          labels.push("< -10");
+        } else if (binEdges[i+1] === Infinity) {
+          labels.push("> 100");
+        } else {
+          labels.push(`${binEdges[i]} to ${binEdges[i+1]}`);
+        }
+      }
+      data.forEach((trade, index) => {
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            const has10RR = dailyUnrealized.some(val => parseFloat(val) >= 10 * riskSize);
+            if (has10RR) {
+              qualifiedTrades++;
+              let pnl = parseFloat(trade['PnL']) || 0;
+              let normalizedPnl = pnl / riskSize;
+              for (let i = 0; i < bins.length; i++) {
+                if (normalizedPnl >= binEdges[i] && normalizedPnl < binEdges[i+1]) {
+                  bins[i]++;
+                  break;
+                }
+              }
+            }
+          } catch(e) {
+            console.error("Error parsing Daily unrealized for trade index", index, e);
+          }
+        }
+      });
+      const percentages = bins.map(count => (qualifiedTrades ? (count / qualifiedTrades) * 100 : 0));
+      const cumulative = [];
+      let runningTotal = 0;
+      for (let i = 0; i < percentages.length; i++) {
+        runningTotal += percentages[i];
+        cumulative.push(runningTotal);
+      }
+      const multilineLabels = labels.map((lab, i) => [lab, bins[i] + " T"]);
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = multilineLabels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].data.datasets[1].data = cumulative;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: multilineLabels,
+            datasets: [
+              {
+                label: 'Percentage of Qualified Trades',
+                data: percentages,
+                backgroundColor: 'rgba(255, 202, 40, 0.6)',
+                borderColor: 'rgba(255, 202, 40, 1)',
+                borderWidth: 1,
+                yAxisID: 'yRight'
+              },
+              {
+                label: 'Cumulative Percentage',
+                type: 'line',
+                data: cumulative,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                backgroundColor: 'rgba(0, 0, 0, 1)',
+                borderWidth: 2,
+                fill: false,
+                yAxisID: 'yLeft',
+                tension: 0,
+                pointStyle: 'circle',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: { title: { display: true, text: 'Final PnL in RR Terms' } },
+              yLeft: { position: 'left', beginAtZero: true, title: { display: true, text: 'Cumulative Percentage (%)' } },
+              yRight: { position: 'right', beginAtZero: true, title: { display: true, text: 'Percentage (%)' }, grid: { drawOnChartArea: false } }
+            }
+          }
+        });
+      }
+    }
+
+    /**
+     * Creates (or updates) a dual–axis chart showing the distribution of
+     * Duration to Max uPnL for trades whose normalized maximum uPnL exceeds 5 RR.
+     *
+     * - For each trade, the maximum value in the "Daily unrealized" array is determined.
+     * - That maximum is normalized by dividing by the risk size (from the input field "riskSize").
+     * - Only if the normalized maximum is >5, the duration (in days) to reach that maximum (assuming each index equals 4 hours)
+     *   is computed and included.
+     * - Durations are binned into the following bins:
+     *      "1–2", "3–4", "5–6", "7–8", "9–10", "10+"
+     * - The bar chart displays the percentage of trades in each bin and a line (on a secondary y–axis) displays the cumulative percentage.
+     *
+     * @param {Array} data - The trade data array (default: csvData).
+     * @param {string} canvasId - The id of the canvas element to render into.
+     */
+    function updateDurationToMaxDistributionChartAbove5(data = csvData, canvasId = 'durationToMaxDistributionChartAbove5') {
+      let durations = [];
+      const riskSizeInput = parseFloat(document.getElementById('riskSize').value) || 55.55;
+
+      data.forEach(trade => {
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "" &&
+            trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            if (Array.isArray(dailyUnrealized) && dailyUnrealized.length > 0) {
+              // Find the index at which the maximum unrealized profit occurs.
+              let maxIndex = 0;
+              let maxVal = parseFloat(dailyUnrealized[0]);
+              for (let i = 1; i < dailyUnrealized.length; i++) {
+                const currentVal = parseFloat(dailyUnrealized[i]);
+                if (!isNaN(currentVal) && currentVal > maxVal) {
+                  maxVal = currentVal;
+                  maxIndex = i;
+                }
+              }
+              // Compute the normalized maximum uPnL.
+              const normalizedMax = maxVal / riskSizeInput;
+              // Only include this trade if its normalized maximum uPnL is above 5.
+              if (normalizedMax > 5) {
+                // Each element represents 4 hours; convert index to days.
+                let duration = (maxIndex * 4) / 24;
+                duration = Math.round(duration);
+                if (duration >= 1) {
+                  durations.push(duration);
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Error computing duration to max uPnL for trade", trade, e);
+          }
+        }
+      });
+
+      // Define bins and labels.
+      const binEdges = [1, 3, 5, 7, 9, 11]; // Bins: [1,3), [3,5), etc. with 11+ as "10+"
+      const labels = ["1–2", "3–4", "5–6", "7–8", "9–10", "10+"];
+      let bins = new Array(labels.length).fill(0);
+
+      durations.forEach(d => {
+        let placed = false;
+        for (let i = 0; i < binEdges.length - 1; i++) {
+          if (d >= binEdges[i] && d < binEdges[i + 1]) {
+            bins[i]++;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          bins[bins.length - 1]++;
+        }
+      });
+
+      const total = durations.length;
+      const percentages = bins.map(count => total ? (count / total) * 100 : 0);
+      let cumulative = [];
+      let runningSum = 0;
+      percentages.forEach(p => {
+        runningSum += p;
+        cumulative.push(runningSum);
+      });
+
+      // Create or update the Chart.js chart.
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) {
+        console.error(`Canvas with id "${canvasId}" not found.`);
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = labels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].data.datasets[1].data = cumulative;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'Percentage of Trades',
+                data: percentages,
+                backgroundColor: 'rgba(66, 165, 245, 0.6)',
+                borderColor: 'rgba(66, 165, 245, 1)',
+                borderWidth: 1,
+                yAxisID: 'y'
+              },
+              {
+                label: 'Cumulative Percentage',
+                type: 'line',
+                data: cumulative,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                backgroundColor: 'rgba(0, 0, 0, 1)',
+                borderWidth: 2,
+                fill: false,
+                yAxisID: 'y2',
+                tension: 0,
+                pointStyle: 'circle',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: {
+                title: { display: true, text: 'Duration to Max uPnL (days)' }
+              },
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: 'Percentage of Trades (%)' }
+              },
+              y2: {
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                beginAtZero: true,
+                title: { display: true, text: 'Cumulative Percentage (%)' }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    /**
+     * Creates (or updates) a dual–axis chart showing the distribution of
+     * Duration to Max uPnL for trades whose normalized maximum uPnL exceeds 10 RR.
+     *
+     * The method is similar to updateDurationToMaxDistributionChartAbove5 except
+     * that it only includes trades with normalized max uPnL > 10.
+     *
+     * @param {Array} data - The trade data array (default: csvData).
+     * @param {string} canvasId - The id of the canvas element to render into.
+     */
+    function updateDurationToMaxDistributionChartAbove10(data = csvData, canvasId = 'durationToMaxDistributionChartAbove10') {
+      let durations = [];
+      const riskSizeInput = parseFloat(document.getElementById('riskSize').value) || 55.55;
+
+      data.forEach(trade => {
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "" &&
+            trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            if (Array.isArray(dailyUnrealized) && dailyUnrealized.length > 0) {
+              let maxIndex = 0;
+              let maxVal = parseFloat(dailyUnrealized[0]);
+              for (let i = 1; i < dailyUnrealized.length; i++) {
+                const currentVal = parseFloat(dailyUnrealized[i]);
+                if (!isNaN(currentVal) && currentVal > maxVal) {
+                  maxVal = currentVal;
+                  maxIndex = i;
+                }
+              }
+              const normalizedMax = maxVal / riskSizeInput;
+              // Only include trades with normalized max uPnL greater than 10.
+              if (normalizedMax > 10) {
+                let duration = (maxIndex * 4) / 24;
+                duration = Math.round(duration);
+                if (duration >= 1) {
+                  durations.push(duration);
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Error computing duration to max uPnL for trade", trade, e);
+          }
+        }
+      });
+
+      // Define bins and labels.
+      const binEdges = [1, 3, 5, 7, 9, 11];
+      const labels = ["1–2", "3–4", "5–6", "7–8", "9–10", "10+"];
+      let bins = new Array(labels.length).fill(0);
+
+      durations.forEach(d => {
+        let placed = false;
+        for (let i = 0; i < binEdges.length - 1; i++) {
+          if (d >= binEdges[i] && d < binEdges[i + 1]) {
+            bins[i]++;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          bins[bins.length - 1]++;
+        }
+      });
+
+      const total = durations.length;
+      const percentages = bins.map(count => total ? (count / total) * 100 : 0);
+      let cumulative = [];
+      let runningSum = 0;
+      percentages.forEach(p => {
+        runningSum += p;
+        cumulative.push(runningSum);
+      });
+
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) {
+        console.error(`Canvas with id "${canvasId}" not found.`);
+        return;
+      }
+      const ctx = canvas.getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        window[canvasId + "Chart"].data.labels = labels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].data.datasets[1].data = cumulative;
+        window[canvasId + "Chart"].update();
+      } else {
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'Percentage of Trades',
+                data: percentages,
+                backgroundColor: 'rgba(255, 202, 40, 0.6)',
+                borderColor: 'rgba(255, 202, 40, 1)',
+                borderWidth: 1,
+                yAxisID: 'y'
+              },
+              {
+                label: 'Cumulative Percentage',
+                type: 'line',
+                data: cumulative,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                backgroundColor: 'rgba(0, 0, 0, 1)',
+                borderWidth: 2,
+                fill: false,
+                yAxisID: 'y2',
+                tension: 0,
+                pointStyle: 'circle',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: {
+                title: { display: true, text: 'Duration to Max uPnL (days)' }
+              },
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: 'Percentage of Trades (%)' }
+              },
+              y2: {
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                beginAtZero: true,
+                title: { display: true, text: 'Cumulative Percentage (%)' }
+              }
+            }
+          }
+        });
+      }
+    }
+
+
+    /**
+     * Process CSV data, compute metrics, and aggregate values.
+     */
+    function processCSV(data) {
+      let totalTrades = data.length;
+      let netProfit = 0, positiveTrades = 0;
+      let largestSingleTradeProfit = -Infinity, largestSingleTradeLoss = Infinity;
+      const dailyProfits = {};
+      let totalDuration = 0, countDuration = 0;
+
+      // NEW: Variable for Largest Single Unrealized Profit
+      let largestUnrealizedProfit = -Infinity;
+
+      // Process each trade
+      data.forEach(trade => {
+        const pnl = parseFloat(trade['PnL']) || 0;
+        netProfit += pnl;
+        if (pnl > 0) positiveTrades++;
+        if (pnl > largestSingleTradeProfit) largestSingleTradeProfit = pnl;
+        if (pnl < largestSingleTradeLoss) largestSingleTradeLoss = pnl;
+
+        let exitDateStr = (trade['Exit Date'] || "").trim();
+        if (!exitDateStr.includes('T')) exitDateStr = exitDateStr.replace(' ', 'T');
+        const exitDate = new Date(exitDateStr);
+        const dateKey = exitDate.toISOString().split('T')[0];
+
+        dailyProfits[dateKey] = (dailyProfits[dateKey] || 0) + pnl;
+
+        // Compute Trade Duration if possible.
+        if (trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            let entryDatesStr = trade['Entry Dates'].replace(/'/g, '"');
+            let entryDatesArray = JSON.parse(entryDatesStr);
+            if (Array.isArray(entryDatesArray) && entryDatesArray.length > 0) {
+              let firstEntryDate = entryDatesArray[0].trim();
+              if (!firstEntryDate.includes('T')) firstEntryDate = firstEntryDate.replace(' ', 'T');
+              let startDate = new Date(firstEntryDate);
+              let duration = Math.round((exitDate - startDate) / (1000 * 60 * 60 * 24));
+              if (!isNaN(duration)) {
+                totalDuration += duration;
+                countDuration++;
+              }
+            }
+          } catch (e) {
+            console.error("Error computing duration for trade", trade, e);
+          }
+        }
+
+        // NEW: For each trade, update the largest single unrealized profit.
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            if (Array.isArray(dailyUnrealized) && dailyUnrealized.length > 0) {
+              // Convert to numbers and filter out invalid values.
+              const dailyValues = dailyUnrealized
+                .map(val => parseFloat(val))
+                .filter(val => !isNaN(val));
+              if (dailyValues.length > 0) {
+                const tradeMax = Math.max(...dailyValues);
+                if (tradeMax > largestUnrealizedProfit) {
+                  largestUnrealizedProfit = tradeMax;
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Error parsing Daily unrealized for trade", trade, e);
+          }
+        }
+      });
+
+      // Calculate success rate
+      const successRate = (positiveTrades / totalTrades) * 100;
+
+      // Instead of just taking the length of dailyProfits keys,
+      // determine the full date range from the earliest to the latest trade.
+      const dateKeys = Object.keys(dailyProfits).sort();
+      let firstDate = new Date(dateKeys[0]);
+      let lastDate = new Date(dateKeys[dateKeys.length - 1]);
+      // Calculate the number of days between the two dates, inclusive.
+      const msInDay = 1000 * 60 * 60 * 24;
+      const fullDaysCount = Math.round((lastDate - firstDate) / msInDay) + 1;
+
+      // Now compute the daily average profit over the full date range.
+      const dailyAvgProfit = netProfit / fullDaysCount;
+
+      // Build the equity curve (for analysis like drawdown)
+      const sortedDates = dateKeys;
+      let cumulative = 0;
+      const equityCurve = sortedDates.map(date => {
+        cumulative += dailyProfits[date];
+        return { date: date, cumulative: cumulative };
+      });
+
+      let peak = -Infinity, maxDrawdown = 0, dateOfMaxDD = '';
+      equityCurve.forEach(point => {
+        if (point.cumulative > peak) peak = point.cumulative;
+        const drawdown = peak - point.cumulative;
+        if (drawdown > maxDrawdown) {
+          maxDrawdown = drawdown;
+          dateOfMaxDD = point.date;
+        }
+      });
+      const maxDrawdownPercent = peak ? (maxDrawdown / peak) * 100 : 0;
+
+      let oneDayMaxProfit = -Infinity, oneDayMaxLoss = Infinity, dateOfMaxLoss = '';
+      for (const [date, profit] of Object.entries(dailyProfits)) {
+        if (profit > oneDayMaxProfit) oneDayMaxProfit = profit;
+        if (profit < oneDayMaxLoss) {
+          oneDayMaxLoss = profit;
+          dateOfMaxLoss = date;
+        }
+      }
+
+      const profitToDrawdown = maxDrawdown !== 0 ? netProfit / maxDrawdown : 'N/A';
+      const averageTradeDuration = countDuration > 0 ? totalDuration / countDuration : 0;
+
+      // Return all the computed metrics including the new metric.
+      return {
+        totalTrades,
+        netProfit,
+        dailyAvgProfit,
+        successRate,
+        maxDrawdownAbsolute: maxDrawdown,
+        maxDrawdownPercent,
+        dateOfMaxDD,
+        oneDayMaxProfit,
+        oneDayMaxLoss,
+        dateOfMaxLoss,
+        profitToDrawdown,
+        largestSingleTradeProfit,
+        largestSingleTradeLoss,
+        averageTradeDuration,
+        // NEW: Largest Single Unrealized Profit
+        largestUnrealizedProfit: largestUnrealizedProfit
+      };
+    }
+
+    /**
+     * Render the summary metrics.
+     */
+    function displayMetrics(metrics) {
+      const summaryDiv = document.getElementById('summary');
+      summaryDiv.innerHTML = `
+        <div class="summary-item"><strong>Total Trades</strong>${metrics.totalTrades}</div>
+        <div class="summary-item"><strong>Net Profit</strong>${metrics.netProfit.toFixed(2)}</div>
+        <div class="summary-item"><strong>Daily Avg Profit</strong>${metrics.dailyAvgProfit.toFixed(2)}</div>
+        <div class="summary-item"><strong>Success Rate</strong>${metrics.successRate.toFixed(2)}%</div>
+        <div class="summary-item"><strong>Max DD (Absolute)</strong>${metrics.maxDrawdownAbsolute.toFixed(2)}</div>
+        <div class="summary-item"><strong>Max DD (%)</strong>${metrics.maxDrawdownPercent.toFixed(2)}%</div>
+        <div class="summary-item"><strong>Date of Max DD</strong>${metrics.dateOfMaxDD}</div>
+        <div class="summary-item"><strong>One Day Max Profit</strong>${metrics.oneDayMaxProfit.toFixed(2)}</div>
+        <div class="summary-item"><strong>One Day Max Loss</strong>${metrics.oneDayMaxLoss.toFixed(2)}</div>
+        <div class="summary-item"><strong>Date of Max Loss</strong>${metrics.dateOfMaxLoss}</div>
+        <div class="summary-item"><strong>Profit/Max DD</strong>${metrics.profitToDrawdown === 'N/A' ? 'N/A' : metrics.profitToDrawdown.toFixed(2)}</div>
+        <div class="summary-item"><strong>Largest Single Trade Profit</strong>${metrics.largestSingleTradeProfit.toFixed(2)}</div>
+        <div class="summary-item"><strong>Largest Single Trade Loss</strong>${metrics.largestSingleTradeLoss.toFixed(2)}</div>
+        <div class="summary-item"><strong>Average Trade Duration</strong>${metrics.averageTradeDuration.toFixed(2)} days</div>
+        <div class="summary-item"><strong>Largest Single Unrealized Profit</strong>${metrics.largestUnrealizedProfit.toFixed(2)}</div>
+      `;
+    }
+
+
+    /**
+     * Hide or show the mini graph column.
+     */
+    function toggleMiniGraphColumn(show) {
+      document.querySelectorAll("th.mini-graph-col").forEach(cell => {
+        cell.style.display = show ? "" : "none";
+      });
+      document.querySelectorAll("td.mini-graph-col").forEach(cell => {
+        cell.style.display = show ? "" : "none";
+      });
+    }
+
+    /**
+     * Populate the table rows.
+     */
+    function populateTable(data) {
+      const tableBody = document.getElementById('tradesTable').querySelector('tbody');
+      tableBody.innerHTML = "";
+      data.forEach((trade, index) => {
+        let firstEntryDate = "N/A";
+        if (trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            let entryDatesStr = trade['Entry Dates'].replace(/'/g, '"');
+            let entryDatesArray = JSON.parse(entryDatesStr);
+            if (Array.isArray(entryDatesArray) && entryDatesArray.length > 0) {
+              firstEntryDate = entryDatesArray[0].trim();
+            }
+          } catch(e) {
+            console.error("Error parsing entry dates for row", index, e);
+          }
+        }
+        let duration = "N/A";
+        if (firstEntryDate !== "N/A" && trade['Exit Date'] && trade['Exit Date'].trim() !== "") {
+          try {
+            let startDateStr = firstEntryDate;
+            if (!startDateStr.includes('T')) { startDateStr = startDateStr.replace(' ', 'T'); }
+            let startDate = new Date(startDateStr);
+            let exitDateStr = trade['Exit Date'].trim();
+            if (!exitDateStr.includes('T')) { exitDateStr = exitDateStr.replace(' ', 'T'); }
+            let exitDate = new Date(exitDateStr);
+            duration = Math.round((exitDate - startDate) / (1000 * 60 * 60 * 24));
+          } catch(e) {
+            console.error("Error calculating duration for row", index, e);
+          }
+        }
+        let avgEntryPrice = "N/A";
+        if (trade['Entry Prices'] && trade['Quantities'] &&
+            trade['Entry Prices'].trim() !== "" && trade['Quantities'].trim() !== "") {
+          try {
+            let entryPricesStr = trade['Entry Prices'].replace(/'/g, '"');
+            let quantitiesStr = trade['Quantities'].replace(/'/g, '"');
+            let entryPricesArr = JSON.parse(entryPricesStr);
+            let quantitiesArr = JSON.parse(quantitiesStr);
+            if (Array.isArray(entryPricesArr) && Array.isArray(quantitiesArr) &&
+                entryPricesArr.length === quantitiesArr.length && entryPricesArr.length > 0) {
+              let totalWeighted = 0, totalQuantity = 0;
+              for (let i = 0; i < entryPricesArr.length; i++) {
+                let price = parseFloat(entryPricesArr[i]);
+                let qty = parseFloat(quantitiesArr[i]);
+                if (!isNaN(price) && !isNaN(qty)) {
+                  totalWeighted += price * qty;
+                  totalQuantity += qty;
+                }
+              }
+              if (totalQuantity > 0) {
+                avgEntryPrice = (totalWeighted / totalQuantity).toFixed(2);
+              }
+            }
+          } catch(e) {
+            console.error("Error calculating average entry price for row", index, e);
+          }
+        }
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${firstEntryDate}</td>
+          <td>${trade['Exit Date'] || "N/A"}</td>
+          <td>${duration}</td>
+          <td class="toggle-col-entry-prices">${trade['Entry Prices'] || "N/A"}</td>
+          <td>${avgEntryPrice}</td>
+          <td>${trade['Exit Price'] || "N/A"}</td>
+          <td class="toggle-col-trade-type">${trade['Trade Type'] || "N/A"}</td>
+          <td class="toggle-col-quantities">${trade['Quantities'] || "N/A"}</td>
+          <td>${trade['Total Quantity'] || "N/A"}</td>
+          <td class="toggle-col-atr-values">${trade['ATR Values'] || "N/A"}</td>
+          <td>${trade['PnL'] || "N/A"}</td>
+          <td class="toggle-col-txn-fee">${trade['Txn Fee'] || "N/A"}</td>
+          <td class="toggle-col-volume">${trade['Volume'] || "N/A"}</td>
+          <td class="mini-graph-col">
+            ${showMiniGraph ? `<canvas id="dailyChart-${index}" width="200" height="150"></canvas>` : ''}
+          </td>
+        `;
+        tableBody.appendChild(row);
+        if (showMiniGraph) {
+          const canvas = document.getElementById(`dailyChart-${index}`);
+          try {
+            if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+              const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+              if (Array.isArray(dailyUnrealized)) {
+                const ctx = canvas.getContext('2d');
+                new Chart(ctx, {
+                  type: 'line',
+                  data: {
+                    labels: dailyUnrealized.map((_, idx) => idx + 1),
+                    datasets: [{
+                      label: 'Unrealized',
+                      data: dailyUnrealized,
+                      fill: false,
+                      borderColor: 'rgba(75, 192, 192, 1)',
+                      borderWidth: 1,
+                      pointRadius: 0
+                    }]
+                  },
+                  options: {
+                    responsive: false,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { display: false }, y: { display: false } }
+                  }
+                });
+              } else {
+                canvas.parentElement.innerText = "N/A";
+              }
+            } else {
+              canvas.parentElement.innerText = "N/A";
+            }
+          } catch (e) {
+            console.error("Error parsing daily unrealized for row", index, e);
+            canvas.parentElement.innerText = "N/A";
+          }
+        }
+      });
+    }
+
+    /**
+      * Computes and displays chart metrics in the given container.
+      *
+      * The metrics computed are:
+      *   - PnL Efficiency: For each trade with valid daily unrealized values,
+      *       efficiency = (final PnL / max unrealized PnL) * 100.
+      *     The average efficiency is then computed over all such trades.
+      *
+      *   - Sum uPnL Peaks: For each trade that has a daily unrealized array,
+      *       if the series goes negative (i.e. its minimum is below 0) and later
+      *       reaches at least 3000, then the maximum unrealized PnL of that trade is added.
+      *
+      *   - Average Trade Duration: Computed from the first entry date (from the "Entry Dates" field)
+      *       and the exit date (from "Exit Date") for each trade.
+      *
+      *   - Success Rate: Number of trades with a positive PnL divided by the total trades.
+      *
+      * @param {Array} data - The trade data array.
+      * @param {string} containerId - The id of the container div where the metrics should be injected.
+      */
+    function displayChartMetrics(data, containerId) {
+      let totalTrades = data.length;
+      let sumEfficiency = 0, countEfficiency = 0;
+      let sumUpnlPeaks = 0;
+      let totalDuration = 0, countDuration = 0;
+      let positiveTrades = 0;
+
+      // Average duration to reach max uPnL (for all trades)
+      let sumDurationToMax = 0, countDurationToMax = 0;
+
+      // New variables: Sum and count for duration to max uPnL for trades that qualify:
+      // (normalized max uPnL > 5 and normalized max uPnL > 10)
+      let sumDurationToMaxAbove5 = 0, countDurationToMaxAbove5 = 0;
+      let sumDurationToMaxAbove10 = 0, countDurationToMaxAbove10 = 0;
+
+      // Read risk size from the input field.
+      const riskSizeInput = parseFloat(document.getElementById('riskSize').value) || 55.55;
+
+      data.forEach(trade => {
+        // Get the final PnL for the trade.
+        const pnl = parseFloat(trade['PnL']) || 0;
+
+        // Count positive trades (for success rate).
+        if (pnl > 0) {
+          positiveTrades++;
+        }
+
+        // --- PnL Efficiency ---
+        // For trades with valid Daily unrealized data, compute efficiency = (PnL / max uPnL) * 100.
+        if (pnl > 0 && trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+          try {
+            const rawArray = JSON.parse(trade['Daily unrealized']);
+            if (Array.isArray(rawArray) && rawArray.length > 0) {
+              const numericValues = rawArray.map(val => parseFloat(val)).filter(val => !isNaN(val));
+              if (numericValues.length > 0) {
+                const maxUpnl = Math.max(...numericValues);
+                if (maxUpnl !== 0) {
+                  const efficiency = (pnl / maxUpnl) * 100;
+                  sumEfficiency += efficiency;
+                  countEfficiency++;
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Error parsing Daily unrealized for PnL Efficiency", trade, e);
+          }
+        }
+
+        // --- Sum uPnL Peaks ---
+        // If the daily unrealized series goes below 500 and later reaches at least 3000, add the maximum value.
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "") {
+          try {
+            const rawArray = JSON.parse(trade['Daily unrealized']);
+            if (Array.isArray(rawArray) && rawArray.length > 0) {
+              const numericValues = rawArray.map(val => parseFloat(val)).filter(val => !isNaN(val));
+              if (numericValues.length > 0) {
+                const minVal = Math.min(...numericValues);
+                const maxVal = Math.max(...numericValues);
+                if (minVal < 500 && maxVal >= 3000) {
+                  sumUpnlPeaks += maxVal;
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Error parsing Daily unrealized for uPnL Peaks", trade, e);
+          }
+        }
+
+        // --- Average Trade Duration (Entry to Exit) ---
+        if (trade['Entry Dates'] && trade['Entry Dates'].trim() !== "" &&
+            trade['Exit Date'] && trade['Exit Date'].trim() !== "") {
+          try {
+            const entryDates = JSON.parse(trade['Entry Dates'].replace(/'/g, '"'));
+            if (Array.isArray(entryDates) && entryDates.length > 0) {
+              let startDateStr = entryDates[0].trim();
+              if (!startDateStr.includes('T')) {
+                startDateStr = startDateStr.replace(' ', 'T');
+              }
+              const startDate = new Date(startDateStr);
+
+              let exitDateStr = trade['Exit Date'].trim();
+              if (!exitDateStr.includes('T')) {
+                exitDateStr = exitDateStr.replace(' ', 'T');
+              }
+              const exitDate = new Date(exitDateStr);
+              const duration = Math.round((exitDate - startDate) / (1000 * 60 * 60 * 24));
+              if (!isNaN(duration)) {
+                totalDuration += duration;
+                countDuration++;
+              }
+            }
+          } catch (e) {
+            console.error("Error computing trade duration", trade, e);
+          }
+        }
+
+        // --- Duration to Reach Max uPnL (for all trades) ---
+        // For trades with valid Daily unrealized data, find the index at which the maximum occurs.
+        // Each index represents 4 hours; convert that to days.
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "" &&
+            trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            if (Array.isArray(dailyUnrealized) && dailyUnrealized.length > 0) {
+              let maxIndex = 0;
+              let maxVal = parseFloat(dailyUnrealized[0]);
+              for (let i = 1; i < dailyUnrealized.length; i++) {
+                const currentVal = parseFloat(dailyUnrealized[i]);
+                if (!isNaN(currentVal) && currentVal > maxVal) {
+                  maxVal = currentVal;
+                  maxIndex = i;
+                }
+              }
+              // Each element is 4 hours; convert the index to days.
+              const durationToMaxInDays = (maxIndex * 4) / 24;
+              sumDurationToMax += durationToMaxInDays;
+              countDurationToMax++;
+
+              // Now calculate the normalized max uPnL.
+              const normalizedMaxUpnl = maxVal / riskSizeInput;
+              if (normalizedMaxUpnl > 5) {
+                sumDurationToMaxAbove5 += durationToMaxInDays;
+                countDurationToMaxAbove5++;
+              }
+              if (normalizedMaxUpnl > 10) {
+                sumDurationToMaxAbove10 += durationToMaxInDays;
+                countDurationToMaxAbove10++;
+              }
+            }
+          } catch (e) {
+            console.error("Error computing duration to max uPnL", trade, e);
+          }
+        }
+      });
+
+      // Compute average metrics.
+      const avgEfficiency = countEfficiency ? (sumEfficiency / countEfficiency) : 0;
+      const avgDuration = countDuration ? (totalDuration / countDuration) : 0;
+      const successRate = totalTrades ? (positiveTrades / totalTrades) * 100 : 0;
+      const avgDurationToMax = countDurationToMax ? (sumDurationToMax / countDurationToMax) : 0;
+      const avgDurationToMaxAbove5 = countDurationToMaxAbove5 ? (sumDurationToMaxAbove5 / countDurationToMaxAbove5) : 0;
+      const avgDurationToMaxAbove10 = countDurationToMaxAbove10 ? (sumDurationToMaxAbove10 / countDurationToMaxAbove10) : 0;
+
+      // Inject the computed metrics into the specified container.
+      document.getElementById(containerId).innerHTML = `
+        <div class="summary-item"><strong>PnL Efficiency</strong> ${avgEfficiency.toFixed(2)}%</div>
+        <div class="summary-item"><strong>Sum uPnL Peaks</strong> ${sumUpnlPeaks.toFixed(2)}</div>
+        <div class="summary-item"><strong>Avg Trade Duration</strong> ${avgDuration.toFixed(2)} days</div>
+        <div class="summary-item"><strong>Success Rate</strong> ${successRate.toFixed(2)}%</div>
+        <div class="summary-item"><strong>Avg Duration to Max uPnL</strong> ${avgDurationToMax.toFixed(2)} days</div>
+        <div class="summary-item"><strong>Avg Duration to Max uPnL (>5 RR)</strong> ${avgDurationToMaxAbove5.toFixed(2)} days</div>
+        <div class="summary-item"><strong>Avg Duration to Max uPnL (>10 RR)</strong> ${avgDurationToMaxAbove10.toFixed(2)} days</div>
+      `;
+    }
+
+
+    /**
+     * Generates a dual-axis chart showing the distribution of
+     * Duration to Max uPnL for the provided trade data.
+     *
+     * The function:
+     * 1. Computes each trade’s duration (in days) to reach its maximum
+     *    unrealized profit (using the "Daily unrealized" array and assuming
+     *    each index represents 4 hours).
+     * 2. Rounds that duration to the nearest whole day.
+     * 3. Bins the durations into six bins with labels:
+     *    "1–2", "3–4", "5–6", "7–8", "9–10", and "10+".
+     * 4. Computes the percentage of trades in each bin.
+     * 5. Computes the cumulative percentage across bins.
+     * 6. Renders a bar chart for the percentages and overlays a line
+     *    chart for the cumulative percentages, with the cumulative scale
+     *    on a secondary (right) y-axis.
+     *
+     * @param {Array} data - The trade data array (default: csvData).
+     * @param {string} canvasId - The id of the canvas element to render into.
+     */
+    function updateDurationToMaxDistributionChart(data = csvData, canvasId = 'durationToMaxDistributionChart') {
+      // Array to hold each trade's duration (in days) to reach max uPnL.
+      let durations = [];
+
+      data.forEach(trade => {
+        if (trade['Daily unrealized'] && trade['Daily unrealized'].trim() !== "" &&
+            trade['Entry Dates'] && trade['Entry Dates'].trim() !== "") {
+          try {
+            const dailyUnrealized = JSON.parse(trade['Daily unrealized']);
+            if (Array.isArray(dailyUnrealized) && dailyUnrealized.length > 0) {
+              // Find the index at which the maximum unrealized profit occurs.
+              let maxIndex = 0;
+              let maxVal = parseFloat(dailyUnrealized[0]);
+              for (let i = 1; i < dailyUnrealized.length; i++) {
+                const currentVal = parseFloat(dailyUnrealized[i]);
+                if (!isNaN(currentVal) && currentVal > maxVal) {
+                  maxVal = currentVal;
+                  maxIndex = i;
+                }
+              }
+              // Each element represents 4 hours; convert to days.
+              let duration = (maxIndex * 4) / 24;
+              // Round to the nearest whole day.
+              duration = Math.round(duration);
+              // Only include trades with at least 1 day duration.
+              if (duration >= 1) {
+                durations.push(duration);
+              }
+            }
+          } catch (e) {
+            console.error("Error computing duration to max uPnL for trade", trade, e);
+          }
+        }
+      });
+
+      // Define bins for durations.
+      // We want bins: "1–2", "3–4", "5–6", "7–8", "9–10", and "10+".
+      // We'll use lower bin edges: [1, 3, 5, 7, 9, 11].
+      const binEdges = [1, 3, 5, 7, 9, 11];
+      const labels = ["1–2", "3–4", "5–6", "7–8", "9–10", "10+"];
+      let bins = new Array(labels.length).fill(0);
+
+      // Place each duration into a bin.
+      durations.forEach(d => {
+        let placed = false;
+        // Loop through bins (except the last one).
+        for (let i = 0; i < binEdges.length - 1; i++) {
+          if (d >= binEdges[i] && d < binEdges[i + 1]) {
+            bins[i]++;
+            placed = true;
+            break;
+          }
+        }
+        // If not placed, it means d >= binEdges[last]; place it in the last bin.
+        if (!placed) {
+          bins[bins.length - 1]++;
+        }
+      });
+
+      // Calculate the percentage for each bin.
+      const total = durations.length;
+      const percentages = bins.map(count => total ? (count / total) * 100 : 0);
+
+      // Compute cumulative percentages.
+      let cumulative = [];
+      let runningSum = 0;
+      percentages.forEach(p => {
+        runningSum += p;
+        cumulative.push(runningSum);
+      });
+
+      // Create (or update) the Chart.js chart.
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "Chart"]) {
+        // Update existing chart.
+        window[canvasId + "Chart"].data.labels = labels;
+        window[canvasId + "Chart"].data.datasets[0].data = percentages;
+        window[canvasId + "Chart"].data.datasets[1].data = cumulative;
+        window[canvasId + "Chart"].update();
+      } else {
+        // Create a new chart instance.
+        window[canvasId + "Chart"] = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'Percentage of Trades',
+                data: percentages,
+                backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1,
+                yAxisID: 'y'
+              },
+              {
+                label: 'Cumulative Percentage',
+                type: 'line',
+                data: cumulative,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                backgroundColor: 'rgba(0, 0, 0, 1)',
+                borderWidth: 2,
+                fill: false,
+                yAxisID: 'y2',
+                tension: 0,
+                pointStyle: 'circle',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              }
+            ]
+          },
+          options: {
+            scales: {
+              x: {
+                title: { display: true, text: 'Duration to Max uPnL (days)' }
+              },
+              y: {
+                beginAtZero: true,
+                title: { display: true, text: 'Percentage of Trades (%)' }
+              },
+              y2: {
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                beginAtZero: true,
+                title: { display: true, text: 'Cumulative Percentage (%)' }
+              }
+            }
+          }
+        });
+      }
+    }
+
+
+    /**
+     * Loads a CSV file given its filename.
+     */
+    function loadCSV(filename) {
+      document.getElementById('errorMessage').innerText = "";
+      Papa.parse(filename, {
+        download: true,
+        header: true,
+        complete: function(results) {
+          csvData = results.data;
+          if (csvData && csvData.length > 0) {
+            const metrics = processCSV(csvData);
+            displayMetrics(metrics);
+            populateTable(csvData);
+            const riskSize = parseFloat(document.getElementById('riskSize').value) || 55.55;
+            // Update overall charts:
+            updateDistributionChart(riskSize);
+            updatePnlDistributionChart(riskSize);
+            updatePortfolioUnrealizedChart();
+            updateEquityLineChart();
+            updateFinalPnlDistributionChart(riskSize);
+            updateFinalPnlDistributionChart5(riskSize);
+            updateFinalPnlDistributionChart10(riskSize);
+            updateDurationToMaxDistributionChart(csvData, 'durationToMaxDistributionChart');
+            updateDurationToMaxDistributionChartAbove5(csvData, 'durationToMaxDistributionChartAbove5');
+            updateDurationToMaxDistributionChartAbove10(csvData, 'durationToMaxDistributionChartAbove10');
+            // Filter data by Trade Type:
+            const longTrades = csvData.filter(trade => trade['Trade Type'] === '1');
+            const shortTrades = csvData.filter(trade => trade['Trade Type'] === '2');
+            displayChartMetrics(csvData, 'all-trades-summary');
+            displayChartMetrics(longTrades, 'long-trades-summary');
+            displayChartMetrics(shortTrades, 'short-trades-summary');
+
+            // Update Long Trades charts:
+            updateDistributionChart(riskSize, longTrades, 'longDistributionChart');
+            updatePnlDistributionChart(riskSize, longTrades, 'longPnlDistributionChart');
+            updatePortfolioUnrealizedChart(longTrades, 'longPortfolioUnrealizedChart');
+            updateEquityLineChart(longTrades, 'longEquityLineChart');
+            updateFinalPnlDistributionChart(riskSize, longTrades, 'longFinalPnlDistributionChart');
+            updateFinalPnlDistributionChart5(riskSize, longTrades, 'longFinalPnlDistributionChart5');
+            updateFinalPnlDistributionChart10(riskSize, longTrades, 'longFinalPnlDistributionChart10');
+            updateDurationToMaxDistributionChart(longTrades, 'longDurationToMaxDistributionChart');
+            updateDurationToMaxDistributionChartAbove5(longTrades, 'longDurationToMaxDistributionChartAbove5');
+            updateDurationToMaxDistributionChartAbove10(longTrades, 'longDurationToMaxDistributionChartAbove10');
+
+            // Update Short Trades charts:
+            updateDistributionChart(riskSize, shortTrades, 'shortDistributionChart');
+            updatePnlDistributionChart(riskSize, shortTrades, 'shortPnlDistributionChart');
+            updatePortfolioUnrealizedChart(shortTrades, 'shortPortfolioUnrealizedChart');
+            updateEquityLineChart(shortTrades, 'shortEquityLineChart');
+            updateFinalPnlDistributionChart(riskSize, shortTrades, 'shortFinalPnlDistributionChart');
+            updateFinalPnlDistributionChart5(riskSize, shortTrades, 'shortFinalPnlDistributionChart5');
+            updateFinalPnlDistributionChart10(riskSize, shortTrades, 'shortFinalPnlDistributionChart10');
+            updateDurationToMaxDistributionChart(shortTrades, 'shortDurationToMaxDistributionChart');
+            updateDurationToMaxDistributionChartAbove5(shortTrades, 'shortDurationToMaxDistributionChartAbove5');
+            updateDurationToMaxDistributionChartAbove10(shortTrades, 'shortDurationToMaxDistributionChartAbove10');
+
+
+            // Ensure toggled columns are hidden per default.
+            toggleMiniGraphColumn(document.getElementById('toggleMiniGraph').checked);
+            toggleColumn("toggle-col-entry-prices", document.getElementById('toggleEntryPrices').checked);
+            toggleColumn("toggle-col-trade-type", document.getElementById('toggleTradeType').checked);
+            toggleColumn("toggle-col-quantities", document.getElementById('toggleQuantities').checked);
+            toggleColumn("toggle-col-atr-values", document.getElementById('toggleATRValues').checked);
+            toggleColumn("toggle-col-txn-fee", document.getElementById('toggleTxnFee').checked);
+            toggleColumn("toggle-col-volume", document.getElementById('toggleVolume').checked);
+          } else {
+            document.getElementById('errorMessage').innerText = "CSV file is empty or improperly formatted.";
+          }
+        },
+        error: function(error) {
+          console.error("Error loading CSV file:", error);
+          document.getElementById('errorMessage').innerText = "Error: Could not load the CSV file. Please check the filename.";
+        }
+      });
+    }
+
+    document.getElementById('loadCSVButton').addEventListener('click', function() {
+      const filename = document.getElementById('csvFilename').value.trim();
+      loadCSV(filename || "daily_trades.csv");
+    });
+
+    // Toggle listeners.
+    document.getElementById('toggleMiniGraph').addEventListener('change', function() {
+      showMiniGraph = this.checked;
+      if (csvData.length > 0) {
+        populateTable(csvData);
+        toggleColumn("toggle-col-entry-prices", document.getElementById('toggleEntryPrices').checked);
+        toggleColumn("toggle-col-trade-type", document.getElementById('toggleTradeType').checked);
+        toggleColumn("toggle-col-quantities", document.getElementById('toggleQuantities').checked);
+        toggleColumn("toggle-col-atr-values", document.getElementById('toggleATRValues').checked);
+        toggleColumn("toggle-col-txn-fee", document.getElementById('toggleTxnFee').checked);
+        toggleColumn("toggle-col-volume", document.getElementById('toggleVolume').checked);
+
+      }
+      toggleMiniGraphColumn(showMiniGraph);
+    });
+    document.getElementById("toggleEntryPrices").addEventListener("change", function() {
+      toggleColumn("toggle-col-entry-prices", this.checked);
+    });
+    document.getElementById("toggleTradeType").addEventListener("change", function() {
+      toggleColumn("toggle-col-trade-type", this.checked);
+    });
+    document.getElementById("toggleQuantities").addEventListener("change", function() {
+      toggleColumn("toggle-col-quantities", this.checked);
+    });
+    document.getElementById("toggleATRValues").addEventListener("change", function() {
+      toggleColumn("toggle-col-atr-values", this.checked);
+    });
+    document.getElementById("toggleTxnFee").addEventListener("change", function() {
+      toggleColumn("toggle-col-txn-fee", this.checked);
+    });
+    document.getElementById("toggleVolume").addEventListener("change", function() {
+      toggleColumn("toggle-col-volume", this.checked);
+    });
+
+    // Update charts when risk size changes.
+    document.getElementById('riskSize').addEventListener('change', function() {
+      const newRiskSize = parseFloat(this.value) || 33;
+      updateDistributionChart(newRiskSize);
+      updatePnlDistributionChart(newRiskSize);
+      updatePortfolioUnrealizedChart(csvData, 'portfolioUnrealizedChart');
+      updateEquityLineChart(csvData, 'equityLineChart');
+      updateFinalPnlDistributionChart(newRiskSize);
+      updateFinalPnlDistributionChart5(newRiskSize);
+      updateFinalPnlDistributionChart10(newRiskSize);
+      updateDurationToMaxDistributionChart(csvData, 'durationToMaxDistributionChart');
+      updateDurationToMaxDistributionChartAbove5(csvData, 'durationToMaxDistributionChartAbove5');
+      updateDurationToMaxDistributionChartAbove10(csvData, 'durationToMaxDistributionChartAbove10');
+      const longTrades = csvData.filter(trade => trade['Trade Type'] === '1');
+      const shortTrades = csvData.filter(trade => trade['Trade Type'] === '2');
+      updateDurationToMaxDistributionChart(longTrades, 'longDurationToMaxDistributionChart');
+      updateDurationToMaxDistributionChart(shortTrades, 'shortDurationToMaxDistributionChart');
+      updateDistributionChart(newRiskSize, longTrades, 'longDistributionChart');
+      updateDurationToMaxDistributionChartAbove5(longTrades, 'longDurationToMaxDistributionChartAbove5');
+      updateDurationToMaxDistributionChartAbove10(longTrades, 'longDurationToMaxDistributionChartAbove10');
+      updatePnlDistributionChart(newRiskSize, longTrades, 'longPnlDistributionChart');
+      updatePortfolioUnrealizedChart(longTrades, 'longPortfolioUnrealizedChart');
+      updateEquityLineChart(longTrades, 'longEquityLineChart');
+      updateFinalPnlDistributionChart(newRiskSize, longTrades, 'longFinalPnlDistributionChart');
+      updateFinalPnlDistributionChart5(newRiskSize, longTrades, 'longFinalPnlDistributionChart5');
+      updateFinalPnlDistributionChart10(newRiskSize, longTrades, 'longFinalPnlDistributionChart10');
+      updateDurationToMaxDistributionChartAbove5(shortTrades, 'shortDurationToMaxDistributionChartAbove5');
+      updateDurationToMaxDistributionChartAbove10(shortTrades, 'shortDurationToMaxDistributionChartAbove10');
+      updateDistributionChart(newRiskSize, shortTrades, 'shortDistributionChart');
+      updatePnlDistributionChart(newRiskSize, shortTrades, 'shortPnlDistributionChart');
+      updatePortfolioUnrealizedChart(shortTrades, 'shortPortfolioUnrealizedChart');
+      updateEquityLineChart(shortTrades, 'shortEquityLineChart');
+      updateFinalPnlDistributionChart(newRiskSize, shortTrades, 'shortFinalPnlDistributionChart');
+      updateFinalPnlDistributionChart5(newRiskSize, shortTrades, 'shortFinalPnlDistributionChart5');
+      updateFinalPnlDistributionChart10(newRiskSize, shortTrades, 'shortFinalPnlDistributionChart10');
+    });
+
+    window.addEventListener('load', function() {
+      document.getElementById('csvFilename').value = "daily_trades.csv";
+      loadCSV("daily_trades.csv");
+    });
+  </script>
+</body>
+</html>

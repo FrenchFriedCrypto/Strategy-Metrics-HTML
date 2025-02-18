@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Metrics by Symbol</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f8f8f8;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    header nav {
+      margin-top: 10px;
+    }
+    header nav button {
+      margin: 0 5px;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    /* Param selection button bar */
+    #paramSectionSelector {
+      text-align: center;
+      margin: 10px 0 20px 0;
+    }
+    #paramSectionSelector button {
+      margin: 0 5px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    /* Toggle scale button container */
+    #scaleToggleContainer {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    /* Filter section styling */
+    #filterContainer {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    #filterContainer .symbol-container {
+      width: 300px;
+    }
+    /* Chart container styling */
+    #chartSection {
+      max-width: 800px;
+      margin: 0 auto 40px auto;
+    }
+    /* Grid container for the symbol mini tables */
+    #metricsContainer {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .symbol-container {
+      background: #fff;
+      padding: 15px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #f2f2f2;
+    }
+  </style>
+  <!-- Include PapaParse from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <!-- Include Chart.js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <!-- Filter container -->
+  <section id="filterContainer">
+    <!-- Filter table will be injected here -->
+  </section>
+  <!-- Header with navigation buttons -->
+  <header>
+    <nav>
+      <button onclick="window.location.href='rs_summary.html.html'">Summary</button>
+      <button onclick="window.location.href='rs_metrics.html'">Metrics</button>
+      <button onclick="window.location.href='rs_graphs.html'">Graphs</button>
+    </nav>
+    <!-- Param selection button bar -->
+    <div id="paramSectionSelector">
+      <button id="sectionBtn0" onclick="selectParamSection(0)">Section 1</button>
+      <button id="sectionBtn1" onclick="selectParamSection(1)">Section 2</button>
+      <button id="sectionBtn2" onclick="selectParamSection(2)">Section 3</button>
+    </div>
+    <!-- Scale toggle button -->
+    <div id="scaleToggleContainer">
+      <button id="toggleScaleButton" onclick="toggleScale()">Switch to Normal Scale</button>
+    </div>
+    <h1>Metrics by Symbol</h1>
+  </header>
+
+  <!-- Chart Section -->
+  <section id="chartSection">
+    <canvas id="chartCanvas" width="800" height="400"></canvas>
+  </section>
+
+  <!-- Grid container for the symbol mini tables -->
+  <section id="metricsContainer">
+    <!-- Mini tables will be injected here -->
+  </section>
+
+  <script>
+    // Global variables for CSV data, computed metrics, filters, param selection, chart, and scale toggle.
+    let csvData = [];
+    let metricsData = [];
+    let filters = {
+      netProfitable: '50',
+      profitDd: '40',
+      successRate: '',
+      avgNetProfitMaxDD: '1.5',
+      avgTrades: '',
+      txnfeeNetProfit: '',
+      avgTxnFee: '',
+      avgMaxDD: '2500',
+      bigWinner: '60'
+    };
+    let currentSection = 0; // 0: first part, 1: second, 2: third.
+    let chartInstance = null;
+    const THRESHOLD = 1; // For symlog transformation (adjust or remove as needed).
+
+    // Global flag for y-axis scale mode (true: use symlog; false: normal scale)
+    let useLogScale = true;
+
+    // Optional symlog transformation so that 0 remains centered.
+    function symlog(x, thresh = THRESHOLD) {
+      return Math.sign(x) * Math.log10(1 + Math.abs(x) / thresh);
+    }
+    function invSymlog(y, thresh = THRESHOLD) {
+      return Math.sign(y) * (Math.pow(10, Math.abs(y)) - 1) * thresh;
+    }
+
+    // Update the style for param section buttons.
+    function updateParamSectionButtons() {
+      for (let i = 0; i < 3; i++) {
+        const btn = document.getElementById(`sectionBtn${i}`);
+        btn.style.backgroundColor = (i === currentSection) ? "#ccc" : "";
+      }
+    }
+    function selectParamSection(index) {
+      currentSection = index;
+      updateParamSectionButtons();
+      updateLineChart();
+    }
+
+    // Toggle the y-axis scale between symlog (log) and normal.
+    function toggleScale() {
+      useLogScale = !useLogScale;
+      const btn = document.getElementById('toggleScaleButton');
+      btn.textContent = useLogScale ? 'Switch to Normal Scale' : 'Switch to Log Scale';
+      updateLineChart();
+    }
+
+    // Load CSV data.
+    Papa.parse('Results_comparison.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: function(results) {
+        csvData = results.data.filter(row => Object.keys(row).length > 1);
+        computeMetrics();
+        renderFilters();
+        renderGrids();
+        updateLineChart();
+      },
+      error: function(error) {
+        console.error('Error loading CSV data:', error);
+        document.getElementById('metricsContainer').innerHTML = '<p>Error loading CSV data.</p>';
+      }
+    });
+
+    // Compute overall metrics for each symbol (used for filtering and grid display).
+    function computeMetrics() {
+      const symbolGroups = {};
+      csvData.forEach(row => {
+        if (!row.Symbol) return;
+        const symbol = row.Symbol;
+        if (!symbolGroups[symbol]) symbolGroups[symbol] = [];
+        symbolGroups[symbol].push(row);
+      });
+
+      metricsData = [];
+      for (const symbol in symbolGroups) {
+        const rows = symbolGroups[symbol];
+        const total = rows.length;
+        let netProfitableCount = 0, netDdCount = 0, netSuccessSum = 0, netProfitMaxDDSum = 0;
+        let tradesSum = 0, txnfeeNetProfitSum = 0, txnfeeNetProfitCount = 0;
+        let avgTxnFeeSum = 0, maxDDSum = 0, bigWinnerSum = 0, bigWinnerCount = 0, netProfitSum = 0;
+
+        rows.forEach(row => {
+          if (row.NetProfit > 0) netProfitableCount++;
+          if (row["NetProfit/MaxDD"] > 2) netDdCount++;
+          netSuccessSum += (row.NetSuccess || 0);
+          netProfitMaxDDSum += (row["NetProfit/MaxDD"] || 0);
+          tradesSum += (row.Trades || 0);
+          const txnfeeRatio = row["txnfee/NetProfit"];
+          if (txnfeeRatio >= 0 && txnfeeRatio <= 0.2) {
+            txnfeeNetProfitSum += txnfeeRatio;
+            txnfeeNetProfitCount++;
+          }
+          avgTxnFeeSum += (row.AvgTxnFee || 0);
+          maxDDSum += (row.MaxDD || 0);
+          netProfitSum += (row.NetProfit || 0);
+          if (row["BigWinner%"] !== undefined && row["BigWinner%"] !== null && !isNaN(row["BigWinner%"])) {
+            bigWinnerSum += row["BigWinner%"];
+            bigWinnerCount++;
+          }
+        });
+
+        const netSuccessAvg = total ? netSuccessSum / total : 0;
+        const netProfitMaxDDAvg = total ? netProfitMaxDDSum / total : 0;
+        const tradesAvg = total ? tradesSum / total : 0;
+        const txnfeeNetProfitAvg = txnfeeNetProfitCount ? txnfeeNetProfitSum / txnfeeNetProfitCount : 0;
+        const avgTxnFeeAvg = total ? avgTxnFeeSum / total : 0;
+        const maxDDAvg = total ? maxDDSum / total : 0;
+        const bigWinnerAvg = bigWinnerCount ? (bigWinnerSum / bigWinnerCount) * 100 : 0;
+        const avgNetProfit = total ? netProfitSum / total : 0;
+        const netProfitablePct = total ? (netProfitableCount / total) * 100 : 0;
+        const netDdPct = total ? (netDdCount / total) * 100 : 0;
+        const txnfeeNetProfitPct = total ? (txnfeeNetProfitCount / total) * 100 : 0;
+
+        metricsData.push({
+          symbol,
+          total,
+          netProfitableCount,
+          netProfitablePct,
+          netDdCount,
+          netDdPct,
+          netSuccessAvg,
+          netProfitMaxDDAvg,
+          tradesAvg,
+          txnfeeNetProfitAvg,
+          txnfeeNetProfitCount,
+          txnfeeNetProfitPct,
+          avgTxnFeeAvg,
+          maxDDAvg,
+          bigWinnerAvg,
+          avgNetProfit
+        });
+      }
+    }
+
+    // Render the filter section.
+    function renderFilters() {
+      const container = document.getElementById('filterContainer');
+      container.innerHTML = '';
+      const filterDiv = document.createElement('div');
+      filterDiv.className = 'symbol-container';
+      const heading = document.createElement('h2');
+      heading.textContent = 'Filters';
+      filterDiv.appendChild(heading);
+      const table = document.createElement('table');
+      const headerRow = document.createElement('tr');
+      const thMetric = document.createElement('th');
+      thMetric.textContent = 'Metric';
+      const thValue = document.createElement('th');
+      thValue.textContent = 'Minimum Value (≥)';
+      headerRow.appendChild(thMetric);
+      headerRow.appendChild(thValue);
+      table.appendChild(headerRow);
+
+      const filterFields = [
+        { key: 'netProfitable', label: 'Profit (%)' },
+        { key: 'profitDd', label: 'P/dd > 2 (%)' },
+        { key: 'successRate', label: 'Success Rate' },
+        { key: 'avgNetProfitMaxDD', label: 'NetP/MxDD' },
+        { key: 'avgTrades', label: 'Trades (#)' },
+        { key: 'txnfeeNetProfit', label: 'txnfee/NetProfit' },
+        { key: 'avgTxnFee', label: 'TxnFee (%)' },
+        { key: 'avgMaxDD', label: 'MaxDD' },
+        { key: 'bigWinner', label: 'Big Winner (%)' }
+      ];
+      filterFields.forEach(field => {
+        const row = document.createElement('tr');
+        const cellMetric = document.createElement('td');
+        cellMetric.textContent = field.label;
+        row.appendChild(cellMetric);
+        const cellInput = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.placeholder = 'All';
+        input.value = filters[field.key] || '';
+        input.oninput = function() {
+          const val = parseFloat(this.value);
+          filters[field.key] = isNaN(val) ? '' : val;
+          renderGrids();
+          updateLineChart();
+        };
+        cellInput.appendChild(input);
+        row.appendChild(cellInput);
+        table.appendChild(row);
+      });
+      filterDiv.appendChild(table);
+      container.appendChild(filterDiv);
+    }
+
+    // Returns an array of metrics (one per symbol) that pass the filters.
+    function getFilteredMetrics() {
+      return metricsData.filter(metric => {
+        if (filters.netProfitable !== '' && ((metric.netProfitableCount / metric.total) * 100) < filters.netProfitable) return false;
+        if (filters.profitDd !== '' && ((metric.netDdCount / metric.total) * 100) < filters.profitDd) return false;
+        if (filters.successRate !== '' && metric.netSuccessAvg < filters.successRate) return false;
+        if (filters.avgNetProfitMaxDD !== '' && metric.netProfitMaxDDAvg < filters.avgNetProfitMaxDD) return false;
+        if (filters.avgTrades !== '' && metric.tradesAvg < filters.avgTrades) return false;
+        if (filters.txnfeeNetProfit !== '' && metric.txnfeeNetProfitAvg < filters.txnfeeNetProfit) return false;
+        if (filters.avgTxnFee !== '' && (metric.avgTxnFeeAvg * 100) < filters.avgTxnFee) return false;
+        if (filters.avgMaxDD !== '' && metric.maxDDAvg > filters.avgMaxDD) return false;
+        if (filters.bigWinner !== '' && metric.bigWinnerAvg > filters.bigWinner) return false;
+        return true;
+      });
+    }
+
+    // Render the grid of symbol metrics.
+    function renderGrids() {
+      const container = document.getElementById('metricsContainer');
+      container.innerHTML = '';
+      metricsData.forEach(metric => {
+        if (filters.netProfitable !== '' && ((metric.netProfitableCount / metric.total) * 100) < filters.netProfitable) return;
+        if (filters.profitDd !== '' && ((metric.netDdCount / metric.total) * 100) < filters.profitDd) return;
+        if (filters.successRate !== '' && metric.netSuccessAvg < filters.successRate) return;
+        if (filters.avgNetProfitMaxDD !== '' && metric.netProfitMaxDDAvg < filters.avgNetProfitMaxDD) return;
+        if (filters.avgTrades !== '' && metric.tradesAvg < filters.avgTrades) return;
+        if (filters.txnfeeNetProfit !== '' && metric.txnfeeNetProfitAvg < filters.txnfeeNetProfit) return;
+        if (filters.avgTxnFee !== '' && (metric.avgTxnFeeAvg * 100) < filters.avgTxnFee) return;
+        if (filters.avgMaxDD !== '' && metric.maxDDAvg > filters.avgMaxDD) return;
+        if (filters.bigWinner !== '' && metric.bigWinnerAvg > filters.bigWinner) return;
+
+        const symbolDiv = document.createElement('div');
+        symbolDiv.className = 'symbol-container';
+        const heading = document.createElement('h2');
+        heading.textContent = 'Symbol: ' + metric.symbol;
+        symbolDiv.appendChild(heading);
+        const table = document.createElement('table');
+        const headerRow = document.createElement('tr');
+        const thMetric = document.createElement('th');
+        thMetric.textContent = 'Metric';
+        const thValue = document.createElement('th');
+        thValue.textContent = 'Value';
+        headerRow.appendChild(thMetric);
+        headerRow.appendChild(thValue);
+        table.appendChild(headerRow);
+        function addRow(metricName, value) {
+          const row = document.createElement('tr');
+          const cellMetric = document.createElement('td');
+          cellMetric.textContent = metricName;
+          const cellValue = document.createElement('td');
+          cellValue.textContent = value;
+          row.appendChild(cellMetric);
+          row.appendChild(cellValue);
+          table.appendChild(row);
+        }
+        addRow('Net Profitable', metric.netProfitableCount + ' (' + metric.netProfitablePct.toFixed(2) + '%)');
+        addRow('Profit/dd > 2', metric.netDdCount + ' (' + metric.netDdPct.toFixed(2) + '%)');
+        addRow('Success Rate', metric.netSuccessAvg.toFixed(2));
+        addRow('Avg NetP/MxDD', metric.netProfitMaxDDAvg.toFixed(2));
+        addRow('Avg Trades', metric.tradesAvg.toFixed(2));
+        if (metric.txnfeeNetProfitCount > 0) {
+          addRow('txnfee/NetProfit', metric.txnfeeNetProfitAvg.toFixed(4) + ' (' + metric.txnfeeNetProfitCount + ', ' + metric.txnfeeNetProfitPct.toFixed(2) + '%)');
+        } else {
+          addRow('txnfee/NetProfit', 'N/A (0 rows)');
+        }
+        addRow('AvgTxnFee', (metric.avgTxnFeeAvg * 100).toFixed(4) + '%');
+        addRow('Avg Big Winner', metric.bigWinnerAvg.toFixed(2) + '%');
+        addRow('Avg MaxDD', metric.maxDDAvg.toFixed(2));
+        addRow('Avg NetProfit', metric.avgNetProfit.toFixed(2));
+        symbolDiv.appendChild(table);
+        container.appendChild(symbolDiv);
+      });
+    }
+
+    // Build/update the line chart that plots each symbol's average NetProfit
+    // grouped by the selected section of the Params column.
+    function updateLineChart() {
+      // Only include symbols that pass the filters.
+      const filteredSymbols = getFilteredMetrics().map(m => m.symbol);
+      // Group CSV data by symbol (only for symbols passing filters) and then by selected Params section.
+      const groupedBySymbol = {};
+      csvData.forEach(row => {
+        if (!row.Symbol || filteredSymbols.indexOf(row.Symbol) === -1) return;
+        const parts = (row.Params || "").split('_');
+        const key = parts[currentSection] || parts[0];
+        if (!groupedBySymbol[row.Symbol]) {
+          groupedBySymbol[row.Symbol] = {};
+        }
+        if (!groupedBySymbol[row.Symbol][key]) {
+          groupedBySymbol[row.Symbol][key] = { totalNetProfit: 0, count: 0 };
+        }
+        groupedBySymbol[row.Symbol][key].totalNetProfit += row.NetProfit;
+        groupedBySymbol[row.Symbol][key].count++;
+      });
+
+      // Collect all unique x-axis labels (the selected param section values).
+      const xLabelsSet = new Set();
+      for (const sym in groupedBySymbol) {
+        for (const paramVal in groupedBySymbol[sym]) {
+          xLabelsSet.add(paramVal);
+        }
+      }
+      let xLabels = Array.from(xLabelsSet);
+      // Attempt numeric sort if applicable.
+      xLabels.sort((a, b) => {
+        const numA = parseFloat(a), numB = parseFloat(b);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return a.localeCompare(b);
+      });
+
+      // Build datasets: one line per symbol.
+      const datasets = [];
+      const colors = [
+        'rgba(255, 99, 132, 1)',
+        'rgba(54, 162, 235, 1)',
+        'rgba(255, 206, 86, 1)',
+        'rgba(75, 192, 192, 1)',
+        'rgba(153, 102, 255, 1)',
+        'rgba(255, 159, 64, 1)'
+      ];
+      let colorIndex = 0;
+      for (const sym in groupedBySymbol) {
+        const dataPoints = xLabels.map(label => {
+          if (groupedBySymbol[sym][label]) {
+            const group = groupedBySymbol[sym][label];
+            const avg = group.totalNetProfit / group.count;
+            return useLogScale ? symlog(avg, THRESHOLD) : avg;
+          } else {
+            return null;
+          }
+        });
+        datasets.push({
+          label: sym,
+          data: dataPoints,
+          borderColor: colors[colorIndex % colors.length],
+          backgroundColor: colors[colorIndex % colors.length],
+          fill: false,
+          spanGaps: true
+        });
+        colorIndex++;
+      }
+
+      // Create (or update) the Chart.js line chart.
+      const ctx = document.getElementById('chartCanvas').getContext('2d');
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: xLabels,
+          datasets: datasets
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: false },
+            title: {
+              display: true,
+              text: 'Average NetProfit by Symbol and Selected Params Section'
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: function(context) {
+                  const rawValue = context.raw;
+                  const original = useLogScale ? invSymlog(rawValue, THRESHOLD) : rawValue;
+                  return original.toFixed(2);
+                }
+              }
+            }
+          },
+          interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Params Section Value'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Average NetProfit'
+              },
+              ticks: {
+                callback: function(value) {
+                  return useLogScale ? invSymlog(value, THRESHOLD).toFixed(2) : value.toFixed(2);
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // Set initial button styles.
+    updateParamSectionButtons();
+  </script>
+</body>
+</html>

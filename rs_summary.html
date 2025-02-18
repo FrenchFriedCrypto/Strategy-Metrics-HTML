@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Results Comparison Metrics by Symbol</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f8f8f8;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    header nav {
+      margin-top: 10px;
+    }
+    header nav button {
+      margin: 0 5px;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    h1, h2, p {
+      text-align: center;
+    }
+    /* Container for the charts */
+    .charts-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: center;
+      margin-bottom: 40px;
+    }
+    /* Chart container (width capped to 600px) */
+    .chart-item {
+      max-width: 600px;
+      flex: 1 1 600px;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    .chart-title {
+      text-align: center;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+  </style>
+  <!-- Include PapaParse and Chart.js from CDNs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <!-- Header with grouping selection buttons -->
+  <header>
+    <nav>
+      <button onclick="window.location.href='rs_summary.html.html'">Summary</button>
+      <button onclick="window.location.href='rs_metrics.html'">Metrics</button>
+      <button onclick="window.location.href='rs_graphs.html'">Graphs</button>
+    </nav>
+
+    <h2>Select Grouping Filter</h2>
+
+    <nav>
+      <button onclick="setGroupingMode('first')">Group by First Part</button>
+      <button onclick="setGroupingMode('middle')">Group by Middle Value</button>
+      <button onclick="setGroupingMode('last')">Group by Last Part</button>
+    </nav>
+  </header>
+
+  <h1>Results Comparison Metrics by Symbol</h1>
+  <p>
+    Use the buttons above to choose how to group the data based on the <code>Params</code> field.
+  </p>
+
+  <!-- Container for the charts -->
+  <section class="charts-container" id="chartsContainer">
+    <!-- Chart canvases will be injected here -->
+  </section>
+
+  <script>
+    // Global variables
+    let groupingMode = 'first'; // default grouping mode
+    let csvData = [];           // will store the CSV data once loaded
+
+    // List of metrics (numeric columns) to chart
+    const metrics = [
+      "USDTvolume",
+      "TxnFee",
+      "AvgTxnFee",
+      "txnfee/NetProfit",
+      "GrossProfit",
+      "NetProfit",
+      "MaxDD",
+      "MaxDD%",
+      "Profit/MaxDD",
+      "NetProfit/MaxDD",
+      "Trades",
+      "Success",
+      "NetSuccess"
+    ];
+
+    // Predefined colors for symbol datasets.
+    const colors = [
+      'rgba(75, 192, 192, 0.6)',
+      'rgba(255, 99, 132, 0.6)',
+      'rgba(255, 205, 86, 0.6)',
+      'rgba(54, 162, 235, 0.6)',
+      'rgba(153, 102, 255, 0.6)',
+      'rgba(201, 203, 207, 0.6)',
+      'rgba(100, 149, 237, 0.6)',
+      'rgba(255, 159, 64, 0.6)'
+    ];
+
+    // Utility function to generate safe HTML element IDs.
+    function sanitizeMetricName(metric) {
+      return metric.replace(/[^a-zA-Z0-9]/g, '_');
+    }
+
+    /**
+     * Returns the grouping key for a row based on the current grouping mode.
+     *
+     * Modes:
+     *  - "first": the value before the first underscore.
+     *  - "middle": the value between the first two underscores (if available; otherwise fallback to first part).
+     *  - "last": the value after the last underscore.
+     */
+    function getGroupKey(row) {
+      if (!row.Params) return "";
+      let parts = row.Params.split('_');
+      if (groupingMode === 'first') {
+        return parts[0];
+      } else if (groupingMode === 'middle') {
+        return parts.length > 1 ? parts[1] : parts[0];
+      } else if (groupingMode === 'last') {
+        return parts[parts.length - 1];
+      }
+      return "";
+    }
+
+    /**
+     * Create charts for each metric based on the CSV data and current grouping mode.
+     */
+    function createCharts(data) {
+      // Clear the charts container
+      const container = document.getElementById('chartsContainer');
+      container.innerHTML = '';
+
+      // Build the aggregated data structure.
+      let groupSet = new Set();
+      // symbolsData[symbol][groupKey] holds aggregated metric values and a count.
+      let symbolsData = {};
+
+      // Loop through each row to aggregate data.
+      data.forEach(row => {
+        if (!row.Symbol || !row.Params) return;
+        let groupKey = getGroupKey(row);
+        groupSet.add(groupKey);
+
+        if (!symbolsData[row.Symbol]) {
+          symbolsData[row.Symbol] = {};
+        }
+        if (!symbolsData[row.Symbol][groupKey]) {
+          // Initialize the aggregation container.
+          symbolsData[row.Symbol][groupKey] = { count: 0 };
+          metrics.forEach(metric => {
+            symbolsData[row.Symbol][groupKey][metric] = 0;
+          });
+        }
+        // Increment count and accumulate metric values.
+        symbolsData[row.Symbol][groupKey].count++;
+        metrics.forEach(metric => {
+          let val = parseFloat(row[metric]);
+          if (!isNaN(val)) {
+            symbolsData[row.Symbol][groupKey][metric] += val;
+          }
+        });
+      });
+
+      // Compute averages for each symbol and group.
+      for (let symbol in symbolsData) {
+        for (let groupKey in symbolsData[symbol]) {
+          let groupData = symbolsData[symbol][groupKey];
+          let count = groupData.count;
+          metrics.forEach(metric => {
+            groupData[metric] = groupData[metric] / count;
+          });
+        }
+      }
+
+      // Create a sorted array of unique group keys (x-axis labels).
+      let groupArray = Array.from(groupSet);
+      groupArray.sort((a, b) => {
+        const numA = parseFloat(a);
+        const numB = parseFloat(b);
+        if (!isNaN(numA) && !isNaN(numB)) {
+          return numA - numB;
+        }
+        return a.localeCompare(b);
+      });
+
+      // For each metric, create a chart.
+      metrics.forEach(metric => {
+        // Create a container for the chart.
+        const chartDiv = document.createElement('div');
+        chartDiv.className = 'chart-item';
+
+        // Create and add a title for the chart.
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'chart-title';
+        titleDiv.textContent = metric;
+        chartDiv.appendChild(titleDiv);
+
+        // Create a canvas element for Chart.js.
+        const canvas = document.createElement('canvas');
+        const canvasId = 'chart_' + sanitizeMetricName(metric);
+        canvas.id = canvasId;
+        chartDiv.appendChild(canvas);
+        container.appendChild(chartDiv);
+
+        // Prepare one dataset per symbol.
+        let datasets = [];
+        let symbolIndex = 0;
+        for (let symbol in symbolsData) {
+          let dataPoints = [];
+          groupArray.forEach(groupKey => {
+            if (symbolsData[symbol][groupKey] && symbolsData[symbol][groupKey][metric] !== undefined) {
+              dataPoints.push(symbolsData[symbol][groupKey][metric]);
+            } else {
+              dataPoints.push(null);
+            }
+          });
+          // Choose a color for the dataset.
+          let color = colors[symbolIndex % colors.length];
+          datasets.push({
+            label: symbol,
+            data: dataPoints,
+            backgroundColor: color,
+            borderColor: color.replace('0.6', '1'),
+            borderWidth: 1
+          });
+          symbolIndex++;
+        }
+
+        // Create the grouped bar chart.
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: groupArray,
+            datasets: datasets
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { position: 'top' },
+              title: { display: false }
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: 'Params ' + groupingMode.charAt(0).toUpperCase() + groupingMode.slice(1) + ' Value'
+                }
+              },
+              y: {
+                title: { display: true, text: metric }
+              }
+            }
+          }
+        });
+      });
+    }
+
+    /**
+     * Set the grouping mode and rebuild the charts.
+     * @param {string} mode - One of 'first', 'middle', or 'last'
+     */
+    function setGroupingMode(mode) {
+      groupingMode = mode;
+      if (csvData.length) {
+        createCharts(csvData);
+      }
+    }
+
+    // Load the CSV file using PapaParse.
+    Papa.parse('Results_comparison.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: function(results) {
+        // Filter out any empty rows.
+        csvData = results.data.filter(row => Object.keys(row).length > 1);
+        createCharts(csvData);
+      },
+      error: function(error) {
+        console.error('Error loading CSV data:', error);
+        document.getElementById('chartsContainer').innerHTML = '<p>Error loading CSV data.</p>';
+      }
+    });
+  </script>
+</body>
+</html>

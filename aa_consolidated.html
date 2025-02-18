@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trade Efficiency Metrics</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f8f8f8;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    h1, h2, p {
+      text-align: center;
+    }
+    /* Container styling for charts */
+    .chart-container {
+      margin: 20px auto;
+      max-width: 800px;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    /* Flex container for grouping multiple charts side by side */
+    .chart-section {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    /* Each chart item inside a flex container */
+    .chart-item {
+      margin: 20px;
+    }
+    /* Styling for the x-axis option bar and buttons */
+    .x-axis-option-bar {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .option-button {
+      padding: 10px 20px;
+      margin: 0 5px;
+      border: none;
+      background-color: #007BFF;
+      color: #fff;
+      cursor: pointer;
+      font-size: 16px;
+      border-radius: 4px;
+    }
+    .option-button.active {
+      background-color: #0056b3;
+    }
+    /* Styling for the slider toggle */
+    .toggle-container {
+      display: inline-flex;
+      margin: 20px;
+      align-items: center;
+      font-size: 18px;
+    }
+    .toggle-container .toggle-text {
+      margin-left: 10px;
+      font-weight: bold;
+      font-size: 25px;
+    }
+    /* The switch container */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 80px;
+      height: 44px;
+    }
+    /* Hide the default checkbox */
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    /* The slider */
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 44px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 36px;
+      width: 36px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    .switch input:checked + .slider {
+      background-color: #007BFF;
+    }
+    .switch input:checked + .slider:before {
+      transform: translateX(36px);
+    }
+  </style>
+  <!-- Load Plotly.js -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <!-- Load PapaParse -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  <!-- Load Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>
+    <h2>Trade Efficiency Metrics</h2>
+  </header>
+  <div style="text-align: center;">
+    <!-- Slider toggle for including negative trades -->
+    <span class="toggle-container">
+      <label class="switch">
+        <input type="checkbox" id="includeNegativeToggle">
+        <span class="slider"></span>
+      </label>
+      <span class="toggle-text">Include negative</span>
+    </span>
+  </div>
+
+  <!-- Option bar for selecting the x-axis parameter -->
+  <div class="x-axis-option-bar">
+    <button id="param1Btn" class="option-button active">Param1</button>
+    <button id="param2Btn" class="option-button">Param2</button>
+    <button id="param3Btn" class="option-button">Param3</button>
+  </div>
+
+  <h1>Avg Trade Efficiency</h1>
+
+  <!-- Container for the line chart -->
+  <div id="lineChart" class="chart-container" style="height: 400px;"></div>
+
+  <!-- Section: PnL/RR Distribution for Trades -->
+  <div style="text-align: center;">
+    <h2 id="pnlRrHeader">uPnL/RR Distribution (Profitable)</h2>
+  </div>
+  <div id="pnlRrChartsContainer" class="chart-section"></div>
+
+  <!-- New Section: Final PnL Distribution (in RR) -->
+  <div style="text-align: center;">
+    <h2 id="finalPnlHeader">PnL/RR Distribution (Profitable)</h2>
+  </div>
+  <div id="finalPnlDistributionChartsContainer" class="chart-section"></div>
+
+  <h2>Max Unrealized/RR Box Plots by Symbol</h2>
+  <!-- Container for the box plots -->
+  <div id="boxPlotChartsContainer" class="chart-section"></div>
+
+  <script>
+    // Global variables to hold CSV data, Chart.js instances, and current settings.
+    let allTrades = [];
+    let currentParam = "param1";   // "param1", "param2", or "param3"
+    let includeNegativeTrades = false; // Toggle for including negative PnL trades in the charts
+
+    // Global array to store Chart.js instances.
+    window.chartInstances = [];
+
+    // Update the active state on the x-axis parameter buttons.
+    function updateParamButtonState() {
+      document.getElementById('param1Btn').classList.toggle('active', currentParam === 'param1');
+      document.getElementById('param2Btn').classList.toggle('active', currentParam === 'param2');
+      document.getElementById('param3Btn').classList.toggle('active', currentParam === 'param3');
+    }
+
+    // Helper function to format parameter names for display.
+    function formatParam(param) {
+      if (param === 'param1') return 'Param1';
+      if (param === 'param2') return 'Param2';
+      if (param === 'param3') return 'Param3';
+      return param;
+    }
+
+    // Load the CSV file using PapaParse.
+    Papa.parse("consolidated_long.csv", {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: function(results) {
+        results.data.forEach(row => {
+          // Check for required columns: symbol, param1, PnL, and Daily unrealized.
+          if (!row.symbol || row.param1 === undefined || row.PnL === undefined || !row['unrealized']) {
+            return;
+          }
+
+          // Parse the "Daily unrealized" field (expected to be a JSON array string).
+          let dailyUnrealized = [];
+          try {
+            dailyUnrealized = JSON.parse(row['unrealized']);
+          } catch(e) {
+            console.error("Error parsing unrealized for row:", row, e);
+            return;
+          }
+          if (!Array.isArray(dailyUnrealized) || dailyUnrealized.length === 0) return;
+
+          // Compute max unrealized value.
+          const maxUnrealized = Math.max(...dailyUnrealized);
+          // Compute trade efficiency: final PnL / max(Daily unrealized).
+          let efficiency = null;
+          if (maxUnrealized !== 0) {
+            efficiency = row.PnL / maxUnrealized;
+          }
+          // Compute risk adjusted value using risk size = 50.
+          const riskAdjusted = maxUnrealized / 50;
+
+          // Save this trade (we save all trades and filter later).
+          allTrades.push({
+            symbol: row.symbol,
+            param1: row.param1,
+            param2: row.param2,
+            param3: row.param3,
+            PnL: row.PnL,
+            dailyUnrealized: dailyUnrealized,
+            efficiency: efficiency,
+            riskAdjusted: riskAdjusted
+          });
+        });
+        // Once the data is loaded, update the charts using the default mode.
+        updateCharts();
+      },
+      error: function(err) {
+        console.error("Error loading CSV file:", err);
+      }
+    });
+
+    // Combined updateCharts function.
+    function updateCharts() {
+      updateParamButtonState();
+      // Filter trades: if includeNegativeTrades is false, keep only profitable trades.
+      let trades = includeNegativeTrades ? allTrades : allTrades.filter(trade => trade.PnL > 0);
+      console.log("Include negatives?", includeNegativeTrades, "Total trades:", allTrades.length, "Filtered trades:", trades.length);
+
+      // Destroy all existing Chart.js instances.
+      if (window.chartInstances && window.chartInstances.length > 0) {
+        window.chartInstances.forEach(chart => chart.destroy());
+        window.chartInstances = [];
+      }
+
+      // Clear Chart.js containers (to remove old canvases).
+      document.getElementById('pnlRrChartsContainer').innerHTML = '';
+      document.getElementById('finalPnlDistributionChartsContainer').innerHTML = '';
+
+      createCharts(trades);
+    }
+
+    function createCharts(trades) {
+      // ------------------------------
+      // Chart 1: Average Efficiency Line Chart (using Plotly)
+      // ------------------------------
+      let efficiencyBySymbol = {};
+      trades.forEach(trade => {
+        if (trade.efficiency === null) return;
+        if (!efficiencyBySymbol[trade.symbol]) {
+          efficiencyBySymbol[trade.symbol] = {};
+        }
+        let symbolGroup = efficiencyBySymbol[trade.symbol];
+        let key = trade[currentParam];
+        if (key === undefined) return;
+        if (!symbolGroup[key]) {
+          symbolGroup[key] = { total: 0, count: 0 };
+        }
+        symbolGroup[key].total += trade.efficiency;
+        symbolGroup[key].count += 1;
+      });
+
+      let lineTraces = [];
+      for (let symbol in efficiencyBySymbol) {
+        let symData = efficiencyBySymbol[symbol];
+        let xVals = [];
+        let yVals = [];
+        let keys = Object.keys(symData).map(Number).sort((a, b) => a - b);
+        keys.forEach(k => {
+          xVals.push(k);
+          yVals.push(symData[k].total / symData[k].count);
+        });
+        lineTraces.push({
+          x: xVals,
+          y: yVals,
+          mode: 'lines+markers',
+          name: symbol,
+          type: 'scatter'
+        });
+      }
+      let lineLayout = {
+        title: 'Average by Symbol',
+        xaxis: { title: formatParam(currentParam) },
+        yaxis: { title: 'Avg (PnL / Max uPnL)' }
+      };
+      Plotly.newPlot('lineChart', lineTraces, lineLayout);
+
+      // ------------------------------
+      // Chart: PnL/RR Distribution using Chart.js
+      // ------------------------------
+      document.getElementById("pnlRrHeader").innerText = includeNegativeTrades ?
+         "uPnL/RR Distribution (All Trades)" :
+         "uPnL/RR Distribution (Profitable)";
+
+      let distributionTrades = trades;
+      // Group the trades by symbol using the values from the Daily unrealized array (normalized to RR by dividing by 50).
+      let distributionTradesBySymbol = {};
+      distributionTrades.forEach(trade => {
+         if (!distributionTradesBySymbol[trade.symbol]) {
+            distributionTradesBySymbol[trade.symbol] = [];
+         }
+         trade.dailyUnrealized.forEach(val => {
+            distributionTradesBySymbol[trade.symbol].push(val / 50);
+         });
+      });
+
+      // Define the bin ranges.
+      const binRanges = [
+          { label: "< -10", min: -Infinity, max: -10 },
+          { label: "-10 to -5", min: -10, max: -5 },
+          { label: "-5 to -1", min: -5, max: -1 },
+          { label: "-1 to 0", min: -1, max: 0 },
+          { label: "0 to 5", min: 0, max: 5 },
+          { label: "5 to 10", min: 5, max: 10 },
+          { label: "10 to 100", min: 10, max: 100 },
+          { label: "100 to 200", min: 100, max: 200 },
+          { label: "200+", min: 200, max: Infinity }
+      ];
+
+      for (let symbol in distributionTradesBySymbol) {
+          let values = distributionTradesBySymbol[symbol];
+          let total = values.length;
+          let binStats = binRanges.map(range => {
+              let binValues = values.filter(v => v >= range.min && v < range.max);
+              binValues.sort((a, b) => a - b);
+              let count = binValues.length;
+              let percentage = total > 0 ? (count / total) * 100 : 0;
+              let min = count > 0 ? binValues[0] : null;
+              let max = count > 0 ? binValues[binValues.length - 1] : null;
+              let median = null;
+              if (count > 0) {
+                  if (count % 2 === 1) {
+                      median = binValues[Math.floor(count / 2)];
+                  } else {
+                      median = (binValues[count / 2 - 1] + binValues[count / 2]) / 2;
+                  }
+              }
+              return { label: range.label, count, percentage, min, max, median };
+          });
+
+          // Trim empty bins from the left and right.
+          let firstNonEmpty = 0;
+          while (firstNonEmpty < binStats.length && binStats[firstNonEmpty].count === 0) {
+            firstNonEmpty++;
+          }
+          let lastNonEmpty = binStats.length - 1;
+          while (lastNonEmpty >= 0 && binStats[lastNonEmpty].count === 0) {
+            lastNonEmpty--;
+          }
+          let trimmedBinStats = (firstNonEmpty <= lastNonEmpty) ?
+                                binStats.slice(firstNonEmpty, lastNonEmpty + 1) : [];
+          let labels = trimmedBinStats.map(bs => bs.label);
+          let percentages = trimmedBinStats.map(bs => bs.percentage);
+
+          let containerDiv = document.createElement('div');
+          containerDiv.className = "chart-item";
+          containerDiv.innerHTML = `
+            <div style="width:600px; height:400px; position:relative;">
+              <canvas id="pnlRrChart_${symbol}" width="600" height="400"></canvas>
+            </div>
+          `;
+          document.getElementById('pnlRrChartsContainer').appendChild(containerDiv);
+
+          let ctx = document.getElementById('pnlRrChart_' + symbol).getContext('2d');
+          let pnlRrChart = new Chart(ctx, {
+              type: 'bar',
+              data: {
+                  labels: labels,
+                  datasets: [{
+                      label: 'Trades (%)',
+                      data: percentages,
+                      backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                      borderColor: 'rgba(75, 192, 192, 1)',
+                      borderWidth: 1,
+                      // Use the trimmed bin stats for tooltips.
+                      binStats: trimmedBinStats
+                  }]
+              },
+              options: {
+                  responsive: false,
+                  plugins: {
+                      title: {
+                          display: true,
+                          text: symbol
+                      },
+                      tooltip: {
+                          callbacks: {
+                              label: function(context) {
+                                  const binData = context.dataset.binStats[context.dataIndex];
+                                  let tooltipText = context.parsed.y.toFixed(2) + '%';
+                                  if (binData.count > 0) {
+                                      tooltipText += ' (min: ' + binData.min.toFixed(2) +
+                                                     ', median: ' + binData.median.toFixed(2) +
+                                                     ', max: ' + binData.max.toFixed(2) + ')';
+                                  } else {
+                                      tooltipText += ' (no data)';
+                                  }
+                                  return tooltipText;
+                              }
+                          }
+                      }
+                  },
+                  scales: {
+                      x: {
+                          title: {
+                              display: true,
+                              text: 'uPnl/RR'
+                          }
+                      },
+                      y: {
+                          beginAtZero: true,
+                          title: {
+                              display: true,
+                              text: 'Percentage (%)'
+                          },
+                          ticks: {
+                              callback: function(value) {
+                                  return value + '%';
+                              }
+                          }
+                      }
+                  }
+              }
+          });
+          // Store the chart instance for later destruction.
+          window.chartInstances.push(pnlRrChart);
+      }
+
+      // ------------------------------
+      // Chart 2: Box & Whiskers Plots for Risk Adjusted Max Unrealized (using Plotly)
+      // ------------------------------
+      let riskDataBySymbol = {};
+      trades.forEach(trade => {
+        if (trade.riskAdjusted === undefined) return;
+        if (!riskDataBySymbol[trade.symbol]) {
+          riskDataBySymbol[trade.symbol] = {};
+        }
+        let symbolGroup = riskDataBySymbol[trade.symbol];
+        let key = trade[currentParam];
+        if (key === undefined) return;
+        if (!symbolGroup[key]) {
+          symbolGroup[key] = [];
+        }
+        symbolGroup[key].push(trade.riskAdjusted);
+      });
+
+      let boxPlotContainer = document.getElementById('boxPlotChartsContainer');
+      boxPlotContainer.innerHTML = ''; // Clear any existing content
+
+      for (let symbol in riskDataBySymbol) {
+        let div = document.createElement('div');
+        div.className = 'chart-item chart-container';
+        div.style.height = '400px';
+        div.id = 'boxPlot_' + symbol;
+        boxPlotContainer.appendChild(div);
+
+        let symbolData = riskDataBySymbol[symbol];
+        let traces = [];
+        let keys = Object.keys(symbolData).map(Number).sort((a, b) => a - b);
+        keys.forEach(key => {
+          traces.push({
+            y: symbolData[key],
+            name: key.toString(),
+            type: 'box',
+            boxpoints: 'outliers',
+            marker: { opacity: 0.15 }
+          });
+        });
+
+        let layout = {
+          title: symbol,
+          xaxis: { title: formatParam(currentParam) },
+          yaxis: { title: 'Max unrealized/RR' },
+          boxmode: 'group'
+        };
+
+        Plotly.newPlot(div.id, traces, layout);
+      }
+
+      // ------------------------------
+      // Chart 3: Final PnL Distribution (normalized to RR) using Chart.js
+      // ------------------------------
+      document.getElementById("finalPnlHeader").innerText = includeNegativeTrades ?
+         "Final PnL/RR Distribution (All Trades)" :
+         "PnL/RR Distribution (Profitable)";
+
+      let pnlDistributionBySymbol = {};
+      trades.forEach(trade => {
+         if (!pnlDistributionBySymbol[trade.symbol]) {
+            pnlDistributionBySymbol[trade.symbol] = [];
+         }
+         pnlDistributionBySymbol[trade.symbol].push(trade.PnL / 50);
+      });
+      let finalPnlContainer = document.getElementById('finalPnlDistributionChartsContainer');
+      finalPnlContainer.innerHTML = '';
+      const binRangesFinal = [
+          { label: "< -10", min: -Infinity, max: -10 },
+          { label: "-10 to -5", min: -10, max: -5 },
+          { label: "-5 to -1", min: -5, max: -1 },
+          { label: "-1 to 0", min: -1, max: 0 },
+          { label: "0 to 5", min: 0, max: 5 },
+          { label: "5 to 10", min: 5, max: 10 },
+          { label: "10 to 100", min: 10, max: 100 },
+          { label: "100 to 200", min: 100, max: 200 },
+          { label: "200+", min: 200, max: Infinity }
+      ];
+      for (let symbol in pnlDistributionBySymbol) {
+          let values = pnlDistributionBySymbol[symbol];
+          let total = values.length;
+          let binStats = binRangesFinal.map(range => {
+              let binValues = values.filter(v => v >= range.min && v < range.max);
+              binValues.sort((a, b) => a - b);
+              let count = binValues.length;
+              let percentage = total > 0 ? (count / total) * 100 : 0;
+              let min = count > 0 ? binValues[0] : null;
+              let max = count > 0 ? binValues[binValues.length - 1] : null;
+              let median = null;
+              if (count > 0) {
+                  if (count % 2 === 1) {
+                      median = binValues[Math.floor(count / 2)];
+                  } else {
+                      median = (binValues[count / 2 - 1] + binValues[count / 2]) / 2;
+                  }
+              }
+              // Calculate the sum of the bin values (needed for cumulative average)
+              let sum = binValues.reduce((acc, val) => acc + val, 0);
+              return { label: range.label, count, percentage, min, max, median, sum };
+          });
+
+          let firstNonEmpty = 0;
+          while (firstNonEmpty < binStats.length && binStats[firstNonEmpty].count === 0) {
+              firstNonEmpty++;
+          }
+          let lastNonEmpty = binStats.length - 1;
+          while (lastNonEmpty >= 0 && binStats[lastNonEmpty].count === 0) {
+              lastNonEmpty--;
+          }
+          let trimmedBinStats = (firstNonEmpty <= lastNonEmpty) ?
+                                binStats.slice(firstNonEmpty, lastNonEmpty + 1) : [];
+          let labels = trimmedBinStats.map(bs => bs.label);
+          let percentages = trimmedBinStats.map(bs => bs.percentage);
+
+          // Compute cumulative averages for each bin.
+          let cumulativeAverages = [];
+          let cumulativeSum = 0;
+          let cumulativeCount = 0;
+          for (let i = 0; i < trimmedBinStats.length; i++) {
+              cumulativeSum += trimmedBinStats[i].sum;
+              cumulativeCount += trimmedBinStats[i].count;
+              let cumAvg = cumulativeCount > 0 ? cumulativeSum / cumulativeCount : 0;
+              cumulativeAverages.push(cumAvg);
+          }
+
+          let containerDiv = document.createElement('div');
+          containerDiv.className = "chart-item";
+          containerDiv.innerHTML = `
+            <div style="width:600px; height:400px; position:relative;">
+              <canvas id="finalPnlChart_${symbol}" width="600" height="400"></canvas>
+            </div>
+          `;
+          finalPnlContainer.appendChild(containerDiv);
+
+          let ctx = document.getElementById('finalPnlChart_' + symbol).getContext('2d');
+          let finalPnlChart = new Chart(ctx, {
+              type: 'bar',
+              data: {
+                  labels: labels,
+                  datasets: [
+                    {
+                      label: 'Trades (%)',
+                      data: percentages,
+                      backgroundColor: 'rgba(153, 102, 255, 0.6)',
+                      borderColor: 'rgba(153, 102, 255, 1)',
+                      borderWidth: 1,
+                      binStats: trimmedBinStats
+                    },
+                    {
+                      label: 'Cumulative Avg',
+                      data: cumulativeAverages,
+                      type: 'line',
+                      borderColor: 'rgba(255, 99, 132, 1)',
+                      borderWidth: 2,
+                      fill: false,
+                      yAxisID: 'y1'
+                    }
+                  ]
+              },
+              options: {
+                  responsive: false,
+                  plugins: {
+                      title: {
+                          display: true,
+                          text: symbol
+                      },
+                      tooltip: {
+                          callbacks: {
+                              label: function(context) {
+                                  if (context.dataset.type === 'line') {
+                                      return 'Cumulative Avg: ' + context.parsed.y.toFixed(2);
+                                  }
+                                  const binData = context.dataset.binStats[context.dataIndex];
+                                  let tooltipText = context.parsed.y.toFixed(2) + '%';
+                                  if (binData.count > 0) {
+                                      tooltipText += ' (min: ' + binData.min.toFixed(2) +
+                                                     ', median: ' + binData.median.toFixed(2) +
+                                                     ', max: ' + binData.max.toFixed(2) + ')';
+                                  } else {
+                                      tooltipText += ' (no data)';
+                                  }
+                                  return tooltipText;
+                              }
+                          }
+                      }
+                  },
+                  scales: {
+                      x: {
+                          title: {
+                              display: true,
+                              text: 'PnL/RR'
+                          }
+                      },
+                      y: {
+                          beginAtZero: true,
+                          title: {
+                              display: true,
+                              text: 'Percentage (%)'
+                          },
+                          ticks: {
+                              callback: function(value) {
+                                  return value + '%';
+                              }
+                          }
+                      },
+                      y1: {
+                          position: 'right',
+                          beginAtZero: true,
+                          title: {
+                              display: true,
+                              text: 'Cumulative Avg (PnL/RR)'
+                          },
+                          grid: {
+                              drawOnChartArea: false
+                          },
+                          ticks: {
+                              callback: function(value) {
+                                  return value.toFixed(2);
+                              }
+                          }
+                      }
+                  }
+              }
+          });
+          // Store this chart instance.
+          window.chartInstances.push(finalPnlChart);
+      }
+    }
+
+    // Event listeners for the x-axis parameter buttons.
+    document.getElementById('param1Btn').addEventListener('click', function() {
+      currentParam = 'param1';
+      updateCharts();
+    });
+    document.getElementById('param2Btn').addEventListener('click', function() {
+      currentParam = 'param2';
+      updateCharts();
+    });
+    document.getElementById('param3Btn').addEventListener('click', function() {
+      currentParam = 'param3';
+      updateCharts();
+    });
+
+    // Event listener for the slider toggle to include negative trades.
+    document.getElementById('includeNegativeToggle').addEventListener('change', function() {
+      includeNegativeTrades = this.checked;
+      updateCharts();
+    });
+  </script>
+</body>
+</html>

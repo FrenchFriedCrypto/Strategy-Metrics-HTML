@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Metrics by Symbol</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f8f8f8;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    header nav {
+      margin-top: 10px;
+    }
+    header nav button {
+      margin: 0 5px;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    h1, h2, p {
+      text-align: center;
+    }
+    /* Grid container for the symbol metrics */
+    #metricsContainer {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    /* Container for each symbol's table (and filters) */
+    .symbol-container {
+      background: #fff;
+      padding: 15px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-shadow: 1px 1px 3px rgba(0,0,0,0.1);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #f2f2f2;
+    }
+    /* Filter section styling */
+    #filterContainer {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    /* Ensure the filter box has the same width as one grid window */
+    #filterContainer .symbol-container {
+      width: 300px;
+    }
+  </style>
+  <!-- Include PapaParse from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+</head>
+<body>
+  <!-- Filter container -->
+  <section id="filterContainer">
+    <!-- Filter table will be injected here -->
+  </section>
+  <!-- Header with navigation buttons -->
+  <header>
+    <nav>
+      <button onclick="window.location.href='rs_summary.html.html'">Summary</button>
+      <button onclick="window.location.href='rs_metrics.html'">Metrics</button>
+      <button onclick="window.location.href='rs_graphs.html'">Graphs</button>
+    </nav>
+    <h1>Metrics by Symbol</h1>
+  </header>
+
+  <!-- Grid container for the symbol mini tables -->
+  <section id="metricsContainer">
+    <!-- Mini tables will be injected here -->
+  </section>
+
+  <script>
+    // Global variables to store CSV data, computed metrics, and current filters
+    let csvData = [];
+    let metricsData = [];
+    // The filters object holds minimum values. If a property is empty, it is not used.
+    // For netProfitable and profitDd, the filter values are now percentages.
+    let filters = {
+      netProfitable: '50',
+      profitDd: '40',
+      successRate: '',
+      avgNetProfitMaxDD: '1.5',
+      avgTrades: '',
+      txnfeeNetProfit: '',
+      avgTxnFee: '',
+      avgMaxDD: '2500',
+      bigWinner: '60'
+    };
+
+    // Load the CSV file using PapaParse
+    Papa.parse('Results_comparison.csv', {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      complete: function(results) {
+        // Filter out any empty rows
+        csvData = results.data.filter(row => Object.keys(row).length > 1);
+        computeMetrics();
+        renderFilters();
+        renderGrids();
+      },
+      error: function(error) {
+        console.error('Error loading CSV data:', error);
+        document.getElementById('metricsContainer').innerHTML = '<p>Error loading CSV data.</p>';
+      }
+    });
+
+    // Compute metrics for each symbol and store them in metricsData
+    function computeMetrics() {
+      const symbolGroups = {};
+      csvData.forEach(row => {
+        if (!row.Symbol) return;
+        const symbol = row.Symbol;
+        if (!symbolGroups[symbol]) {
+          symbolGroups[symbol] = [];
+        }
+        symbolGroups[symbol].push(row);
+      });
+
+      metricsData = [];
+      for (const symbol in symbolGroups) {
+        const rows = symbolGroups[symbol];
+        const total = rows.length;
+
+        let netProfitableCount = 0;
+        let netDdCount = 0;
+        let netSuccessSum = 0;
+        let netProfitMaxDDSum = 0;
+        let tradesSum = 0;
+        let txnfeeNetProfitSum = 0;
+        let txnfeeNetProfitCount = 0;
+        let avgTxnFeeSum = 0;
+        let maxDDSum = 0;
+        let bigWinnerSum = 0;      // Sum for BigWinner%
+        let bigWinnerCount = 0;    // Count of rows with BigWinner%
+
+        rows.forEach(row => {
+          if (row.NetProfit > 0) {
+            netProfitableCount++;
+          }
+          if (row["NetProfit/MaxDD"] > 2) {
+            netDdCount++;
+          }
+          netSuccessSum += (row.NetSuccess || 0);
+          netProfitMaxDDSum += (row["NetProfit/MaxDD"] || 0);
+          tradesSum += (row.Trades || 0);
+
+          const txnfeeRatio = row["txnfee/NetProfit"];
+          if (txnfeeRatio >= 0 && txnfeeRatio <= 0.2) {
+            txnfeeNetProfitSum += txnfeeRatio;
+            txnfeeNetProfitCount++;
+          }
+
+          avgTxnFeeSum += (row.AvgTxnFee || 0);
+          maxDDSum += (row.MaxDD || 0);
+
+          // Process BigWinner% column if available and numeric
+          if (row["BigWinner%"] !== undefined && row["BigWinner%"] !== null && !isNaN(row["BigWinner%"])) {
+            bigWinnerSum += row["BigWinner%"];
+            bigWinnerCount++;
+          }
+        });
+
+        const netSuccessAvg = total ? netSuccessSum / total : 0;
+        const netProfitMaxDDAvg = total ? netProfitMaxDDSum / total : 0;
+        const tradesAvg = total ? tradesSum / total : 0;
+        const txnfeeNetProfitAvg = txnfeeNetProfitCount ? txnfeeNetProfitSum / txnfeeNetProfitCount : 0;
+        const avgTxnFeeAvg = total ? avgTxnFeeSum / total : 0;
+        const maxDDAvg = total ? maxDDSum / total : 0;
+        const bigWinnerAvg = bigWinnerCount ? (bigWinnerSum / bigWinnerCount) * 100 : 0; // Average BigWinner%
+
+        // Calculate percentages as numbers for filtering & display
+        const netProfitablePct = total ? (netProfitableCount / total) * 100 : 0;
+        const netDdPct = total ? (netDdCount / total) * 100 : 0;
+        const txnfeeNetProfitPct = total ? (txnfeeNetProfitCount / total) * 100 : 0;
+
+        metricsData.push({
+          symbol,
+          total,
+          netProfitableCount,
+          netProfitablePct, // number value (percentage)
+          netDdCount,
+          netDdPct, // number value (percentage)
+          netSuccessAvg,
+          netProfitMaxDDAvg,
+          tradesAvg,
+          txnfeeNetProfitAvg,
+          txnfeeNetProfitCount,
+          txnfeeNetProfitPct,
+          avgTxnFeeAvg, // stored as a fraction; displayed as percentage below
+          maxDDAvg,
+          bigWinnerAvg   // New metric: average BigWinner%
+        });
+      }
+    }
+
+    // Render the filter section (a table with an input for each metric)
+    function renderFilters() {
+      const container = document.getElementById('filterContainer');
+      container.innerHTML = '';
+
+      const filterDiv = document.createElement('div');
+      filterDiv.className = 'symbol-container';
+
+      const heading = document.createElement('h2');
+      heading.textContent = 'Filters';
+      filterDiv.appendChild(heading);
+
+      const table = document.createElement('table');
+      const headerRow = document.createElement('tr');
+      const thMetric = document.createElement('th');
+      thMetric.textContent = 'Metric';
+      const thValue = document.createElement('th');
+      thValue.textContent = 'Minimum Value (≥)';
+      headerRow.appendChild(thMetric);
+      headerRow.appendChild(thValue);
+      table.appendChild(headerRow);
+
+      // Define filter fields with keys and labels.
+      // For AvgTxnFee the value is multiplied by 100 when displayed.
+      // Note: 'netProfitable' and 'profitDd' now filter by percentage values.
+      const filterFields = [
+        { key: 'netProfitable', label: 'Profit (%)' },
+        { key: 'profitDd', label: 'P/dd > 2 (%)' },
+        { key: 'successRate', label: 'Success Rate' },
+        { key: 'avgNetProfitMaxDD', label: 'NetP/MxDD' },
+        { key: 'avgTrades', label: 'Trades (#)' },
+        { key: 'txnfeeNetProfit', label: 'txnfee/NetProfit' },
+        { key: 'avgTxnFee', label: 'TxnFee (%)' },
+        { key: 'avgMaxDD', label: 'MaxDD' },
+        { key: 'bigWinner', label: 'Big Winner (%)' }  // New filter field
+      ];
+
+      filterFields.forEach(field => {
+        const row = document.createElement('tr');
+
+        const cellMetric = document.createElement('td');
+        cellMetric.textContent = field.label;
+        row.appendChild(cellMetric);
+
+        const cellInput = document.createElement('td');
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.placeholder = 'All';
+        input.value = filters[field.key] || '';
+        // When a filter value is changed, update the filters and re-render the grids.
+        input.oninput = function() {
+          const val = parseFloat(this.value);
+          filters[field.key] = isNaN(val) ? '' : val;
+          renderGrids();
+        };
+        cellInput.appendChild(input);
+        row.appendChild(cellInput);
+
+        table.appendChild(row);
+      });
+
+      filterDiv.appendChild(table);
+      container.appendChild(filterDiv);
+    }
+
+    // Render the symbol grids based on the computed metrics and current filters
+    function renderGrids() {
+      const container = document.getElementById('metricsContainer');
+      container.innerHTML = '';
+
+      // Loop over each symbol's metrics and only display those that meet the filter criteria.
+      metricsData.forEach(metric => {
+        // For percentage-based filters:
+        // Net Profitable (%) filter: compare (netProfitableCount/total)*100 to the filter value.
+        if (filters.netProfitable !== '' && ((metric.netProfitableCount / metric.total) * 100) < filters.netProfitable) return;
+        // Profit/dd > 2 (%) filter: compare (netDdCount/total)*100 to the filter value.
+        if (filters.profitDd !== '' && ((metric.netDdCount / metric.total) * 100) < filters.profitDd) return;
+        // Other filters remain unchanged.
+        if (filters.successRate !== '' && metric.netSuccessAvg < filters.successRate) return;
+        if (filters.avgNetProfitMaxDD !== '' && metric.netProfitMaxDDAvg < filters.avgNetProfitMaxDD) return;
+        if (filters.avgTrades !== '' && metric.tradesAvg < filters.avgTrades) return;
+        if (filters.txnfeeNetProfit !== '' && metric.txnfeeNetProfitAvg < filters.txnfeeNetProfit) return;
+        // For AvgTxnFee, compare the percentage (multiply by 100)
+        if (filters.avgTxnFee !== '' && (metric.avgTxnFeeAvg * 100) < filters.avgTxnFee) return;
+        if (filters.avgMaxDD !== '' && metric.maxDDAvg > filters.avgMaxDD) return;
+        // New filter for average BigWinner%
+        if (filters.bigWinner !== '' && metric.bigWinnerAvg > filters.bigWinner) return;
+
+        // Create the container for this symbol's metrics
+        const symbolDiv = document.createElement('div');
+        symbolDiv.className = 'symbol-container';
+
+        const heading = document.createElement('h2');
+        heading.textContent = 'Symbol: ' + metric.symbol;
+        symbolDiv.appendChild(heading);
+
+        const table = document.createElement('table');
+        const headerRow = document.createElement('tr');
+        const thMetric = document.createElement('th');
+        thMetric.textContent = 'Metric';
+        const thValue = document.createElement('th');
+        thValue.textContent = 'Value';
+        headerRow.appendChild(thMetric);
+        headerRow.appendChild(thValue);
+        table.appendChild(headerRow);
+
+        // Helper function to add a row to the table
+        function addRow(metricName, value) {
+          const row = document.createElement('tr');
+          const cellMetric = document.createElement('td');
+          cellMetric.textContent = metricName;
+          const cellValue = document.createElement('td');
+          cellValue.textContent = value;
+          row.appendChild(cellMetric);
+          row.appendChild(cellValue);
+          table.appendChild(row);
+        }
+
+        addRow('Net Profitable', metric.netProfitableCount + ' (' + metric.netProfitablePct.toFixed(2) + '%)');
+        addRow('Profit/dd > 2', metric.netDdCount + ' (' + metric.netDdPct.toFixed(2) + '%)');
+        addRow('Success Rate', metric.netSuccessAvg.toFixed(2));
+        addRow('Avg NetP/MxDD', metric.netProfitMaxDDAvg.toFixed(2));
+        addRow('Avg Trades', metric.tradesAvg.toFixed(2));
+        if (metric.txnfeeNetProfitCount > 0) {
+          addRow('txnfee/NetProfit', metric.txnfeeNetProfitAvg.toFixed(4) + ' (' + metric.txnfeeNetProfitCount + ', ' + metric.txnfeeNetProfitPct.toFixed(2) + '%)');
+        } else {
+          addRow('txnfee/NetProfit', 'N/A (0 rows)');
+        }
+        addRow('AvgTxnFee', (metric.avgTxnFeeAvg * 100).toFixed(4) + '%');
+        addRow('Avg Big Winner', metric.bigWinnerAvg.toFixed(2) + '%');  // New row for BigWinner%
+        addRow('Avg MaxDD', metric.maxDDAvg.toFixed(2));
+
+        symbolDiv.appendChild(table);
+        container.appendChild(symbolDiv);
+      });
+    }
+  </script>
+</body>
+</html>
