@@ -184,9 +184,9 @@
   <!-- Navigation Header -->
   <header>
     <nav>
-      <button onclick="window.location.href='index.html'">Summary</button>
-      <button onclick="window.location.href='capped_pnl.html'">Capped PnL</button>
-      <button onclick="window.location.href='individual.html'">Individual symbol</button>
+      <button onclick="window.location.href='qm_index.html'">Summary</button>
+      <button onclick="window.location.href='qm_capped_pnl.html'">Capped PnL</button>
+      <button onclick="window.location.href='qm_individual.html'">Individual symbol</button>
 
     </nav>
   </header>
@@ -2051,7 +2051,7 @@
 
     document.getElementById('loadCSVButton').addEventListener('click', function() {
       const filename = document.getElementById('csvFilename').value.trim();
-      loadCSV(filename || "daily_trades.csv");
+      loadCSV(filename || "compiled_csv_data/daily_trades.csv");
     });
 
     // Toggle listeners.
@@ -2126,8 +2126,8 @@
     });
 
     window.addEventListener('load', function() {
-      document.getElementById('csvFilename').value = "daily_trades.csv";
-      loadCSV("daily_trades.csv");
+      document.getElementById('csvFilename').value = "compiled_csv_data/daily_trades.csv";
+      loadCSV("compiled_csv_data/daily_trades.csv");
     });
   </script>
 </body>
