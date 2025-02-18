@@ -185,6 +185,3 @@ This dashboard suite uses the following external libraries (loaded via CDN):
 
 ---
 
-## License
-
-*Include license information here if applicable.*
